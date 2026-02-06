@@ -33,19 +33,24 @@ export interface AuthResponse {
 }
 
 class AuthService {
-  // Login
+  // Login – accepts multiple backend shapes: { success, data } or { token, user }
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const response = await apiService.post<AuthResponse>(
+    const raw = await apiService.post<Record<string, unknown>>(
       API_ENDPOINTS.AUTH.LOGIN,
       credentials
     );
-    
-    if (response.success && response.data.token) {
-      apiService.setAuthToken(response.data.token);
-      localStorage.setItem('user', JSON.stringify(response.data.user));
+
+    const token =
+      (raw?.data as { token?: string })?.token ?? (raw?.token as string) ?? (raw?.accessToken as string);
+    const user = (raw?.data as { user?: unknown })?.user ?? raw?.user;
+
+    if (token && user) {
+      apiService.setAuthToken(token);
+      localStorage.setItem('user', JSON.stringify(user));
+      return { success: true, data: { token, user: user as User } };
     }
-    
-    return response;
+
+    return (raw as AuthResponse) ?? { success: false, data: { token: '', user: {} as User } };
   }
 
   // Register

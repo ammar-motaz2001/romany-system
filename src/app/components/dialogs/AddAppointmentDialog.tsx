@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { Button } from '@/app/components/ui/button';
-import { Input } from '@/app/components/ui/input';
-import { useApp } from '@/app/context/AppContext';
+  import { Button } from '../../components/ui/button';
+import { Input } from '../../components/ui/input';
+import { useApp } from '../../context/AppContext';
 
 interface AddAppointmentDialogProps {
   open: boolean;

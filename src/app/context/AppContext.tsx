@@ -1,21 +1,56 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useMemo,
+  ReactNode,
+  useEffect,
+} from 'react';
 import { translations, Language, TranslationKey } from '@/app/translations';
 import { toast } from 'sonner';
 
-// Import Mock Data for frontend-only mode
-import {
-  mockServices,
-  mockCustomers,
-  mockAppointments,
-  mockSales,
-  mockInventory,
-  mockAttendance,
-  mockEmployees,
-  mockExpenses,
-} from './MockData';
+import { customerService } from '@/services/customer.service';
+import { appointmentService } from '@/services/appointment.service';
+import { serviceService } from '@/services/service.service';
+import { saleService } from '@/services/sale.service';
+import { inventoryService } from '@/services/inventory.service';
+import { attendanceService } from '@/services/attendance.service';
+import { employeeService } from '@/services/employee.service';
+import { expenseService } from '@/services/expense.service';
+import { authService } from '@/services/auth.service';
+import { settingService } from '@/services/setting.service';
+import { supplierService } from '@/services/supplier.service';
+import { purchaseInvoiceService } from '@/services/purchaseInvoice.service';
 
-// Beauty Salon Management System - Main Application Context v4 (Frontend-Only Mode)
-// Last Updated: 2026-02-06 - Fixed all service references
+/** Unwrap API response: backend may return { data: T } or T */
+function unwrapList<T>(res: unknown): T[] {
+  if (Array.isArray(res)) return res as T[];
+  const data = (res as { data?: unknown })?.data;
+  return Array.isArray(data) ? (data as T[]) : [];
+}
+
+/** Unwrap single entity: backend may return { data: T } or T */
+function unwrapData<T>(res: unknown): T | null {
+  if (res == null) return null;
+  const data = (res as { data?: unknown })?.data;
+  return data !== undefined ? (data as T) : (res as T);
+}
+
+/** Map auth API user to AppContext User shape (used after User interface is defined) */
+function mapAuthUserToContextUser(u: Record<string, unknown>): User {
+  return {
+    id: String(u.id ?? ''),
+    username: String(u.username ?? ''),
+    password: '',
+    role: ((u.role as string) === 'admin' ? 'admin' : 'cashier') as User['role'],
+    name: String((u as { fullName?: string }).fullName ?? u.name ?? ''),
+    email: String(u.email ?? ''),
+    phone: String(u.phone ?? ''),
+    image: u.image as string | undefined,
+    permissions: u.permissions as User['permissions'] | undefined,
+  } as User;
+}
 
 interface Service {
   id: string;
@@ -347,6 +382,7 @@ interface AppContextType {
   deleteUser: (id: string) => void;
   updateCurrentUser: (user: Partial<User>) => void;
   loginUser: (userId: string) => void;
+  loginWithCredentials: (credentials: { username: string; password: string }) => Promise<boolean>;
   logoutUser: () => void;
   
   // System Settings
@@ -384,101 +420,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const initialUsers: User[] = [
-    {
-      id: '1',
-      username: 'admin',
-      password: 'admin123',
-      role: 'admin',
-      name: 'المدير العام',
-      email: 'admin@example.com',
-      phone: '01000000000',
-      image: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100',
-      permissions: {
-        dashboard: true,
-        sales: true,
-        invoices: true,
-        customers: true,
-        appointments: true,
-        inventory: true,
-        services: true,
-        expenses: true,
-        shifts: true,
-        employees: true,
-        attendance: true,
-        payroll: true,
-        reports: true,
-        settings: true,
-        suppliers: true,
-      },
-    },
-    {
-      id: '2',
-      username: 'cashier',
-      password: 'cashier123',
-      role: 'cashier',
-      name: 'الكاشير',
-      email: 'cashier@example.com',
-      phone: '01111111111',
-      image: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=100',
-      permissions: {
-        dashboard: true,
-        sales: true,
-        invoices: true,
-        customers: true,
-        appointments: true,
-        inventory: false,
-        services: false,
-        expenses: false,
-        shifts: false,
-        employees: false,
-        attendance: false,
-        payroll: false,
-        reports: false,
-        settings: false,
-        suppliers: false,
-      },
-    },
-  ];
-
-  // Load users from localStorage or use initial users
-  const loadUsersFromLocalStorage = (): User[] => {
-    try {
-      const savedUsers = localStorage.getItem('users');
-      if (savedUsers) {
-        return JSON.parse(savedUsers);
-      }
-      // First time - save initial users to localStorage
-      localStorage.setItem('users', JSON.stringify(initialUsers));
-      return initialUsers;
-    } catch (error) {
-      console.error('Error loading users from localStorage:', error);
-      return initialUsers;
-    }
-  };
-
-  const [users, setUsers] = useState<User[]>(loadUsersFromLocalStorage());
+  const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    // Load current user from localStorage on initialization
-    try {
-      const savedUser = localStorage.getItem('currentUser');
-      return savedUser ? JSON.parse(savedUser) : null;
-    } catch (error) {
-      console.error('Error loading current user from localStorage:', error);
-      return null;
-    }
+    const authUser = authService.getCurrentUser();
+    return authUser ? mapAuthUserToContextUser(authUser as unknown as Record<string, unknown>) : null;
   });
   const [systemSettings, setSystemSettings] = useState<SystemSettings>({
-    shopName: 'صالون الجمال',
-    address: 'القاهرة، مصر',
-    phone: '01234567890',
-    email: 'info@salon.com',
+    shopName: '',
+    address: '',
+    phone: '',
+    email: '',
     currency: 'ج.م',
     language: 'ar',
-    workingHours: {
-      start: '09:00',
-      end: '21:00',
-    },
+    workingHours: { start: '09:00', end: '21:00' },
     notifications: true,
     darkMode: false,
     invoiceSettings: {
@@ -486,44 +440,143 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showAddress: true,
       showPhone: true,
       showEmail: true,
-      footer: 'شكراً لزيارتكم - نتمنى لكم تجربة رائعة',
+      footer: '',
     },
   });
 
   const [darkMode, setDarkMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Load all data from backend on mount
-  useEffect(() => {
-    loadAllData();
-    loadShiftsFromLocalStorage();
-  }, []);
-
-  const loadAllData = async () => {
+  const loadAllData = useCallback(async () => {
     setLoading(true);
     try {
-      // Load from localStorage first, fallback to mock data
-      const savedSales = localStorage.getItem('sales');
-      const savedInventory = localStorage.getItem('inventory');
-      
-      // Frontend-only mode - Use Mock Data or localStorage
-      setServices(mockServices);
-      setCustomers(mockCustomers);
-      setAppointments(mockAppointments);
-      setSales(savedSales ? JSON.parse(savedSales) : mockSales);
-      setInventory(savedInventory ? JSON.parse(savedInventory) : mockInventory);
-      setAttendanceRecords(mockAttendance);
-      setEmployees(mockEmployees);
-      setExpenses(mockExpenses);
-      console.log('✅ تم تحمي البيانات (Frontend-Only Mode)');
+      const [
+        servicesRes,
+        customersRes,
+        appointmentsRes,
+        salesRes,
+        inventoryRes,
+        attendanceRes,
+        employeesRes,
+        expensesRes,
+        settingsRes,
+        usersRes,
+      ] = await Promise.allSettled([
+        serviceService.getAllServices(),
+        customerService.getAll(),
+        appointmentService.getAllAppointments(),
+        saleService.getAllSales(),
+        inventoryService.getAllInventory(),
+        attendanceService.getAllAttendance(),
+        employeeService.getAllEmployees(),
+        expenseService.getAllExpenses(),
+        settingService.getSettings(),
+        authService.getAllUsers(),
+      ]);
+
+      setServices(
+        servicesRes.status === 'fulfilled'
+          ? unwrapList<Service>(servicesRes.value)
+          : []
+      );
+      setCustomers(
+        customersRes.status === 'fulfilled'
+          ? mapBackendCustomersToContext(unwrapList(customersRes.value))
+          : []
+      );
+      setAppointments(
+        appointmentsRes.status === 'fulfilled'
+          ? unwrapList<Appointment>(appointmentsRes.value)
+          : []
+      );
+      setSales(
+        salesRes.status === 'fulfilled'
+          ? unwrapList<Sale>(salesRes.value)
+          : []
+      );
+      setInventory(
+        inventoryRes.status === 'fulfilled'
+          ? unwrapList<InventoryItem>(inventoryRes.value)
+          : []
+      );
+      setAttendanceRecords(
+        attendanceRes.status === 'fulfilled'
+          ? unwrapList<AttendanceRecord>(attendanceRes.value)
+          : []
+      );
+      setEmployees(
+        employeesRes.status === 'fulfilled'
+          ? unwrapList<Employee>(employeesRes.value)
+          : []
+      );
+      setExpenses(
+        expensesRes.status === 'fulfilled'
+          ? unwrapList<Expense>(expensesRes.value)
+          : []
+      );
+      if (settingsRes.status === 'fulfilled' && settingsRes.value) {
+        const s = settingsRes.value as Record<string, unknown>;
+        setSystemSettings((prev) => ({
+          ...prev,
+          shopName: (s.businessName as string) ?? prev.shopName,
+          address: (s.businessAddress as string) ?? prev.address,
+          phone: (s.businessPhone as string) ?? prev.phone,
+          email: (s.businessEmail as string) ?? prev.email,
+          currency: (s.currency as string) ?? prev.currency,
+          language: (s.language as string) ?? prev.language,
+        }));
+      }
+      if (usersRes.status === 'fulfilled' && usersRes.value) {
+        const list = unwrapList<Record<string, unknown>>(usersRes.value);
+        setUsers(list.map((u) => mapAuthUserToContextUser(u)));
+      }
+      console.log('✅ تم تحميل البيانات من الخادم');
     } catch (error) {
       console.error('Error loading data:', error);
+      setServices([]);
+      setCustomers([]);
+      setAppointments([]);
+      setSales([]);
+      setInventory([]);
+      setAttendanceRecords([]);
+      setEmployees([]);
+      setExpenses([]);
+      toast.error('فشل تحميل البيانات من الخادم');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  // Load shifts from localStorage
+  // Load data only when authenticated to avoid 401 → redirect → remount → infinite loop
+  useEffect(() => {
+    loadShiftsFromLocalStorage();
+    if (authService.isAuthenticated()) {
+      loadAllData();
+    } else {
+      setLoading(false);
+    }
+  }, [loadAllData]);
+
+  /** Map backend customer shape (totalVisits, totalSpent) to context shape (visits, spending) */
+  function mapBackendCustomersToContext(list: unknown[]): Customer[] {
+    return list.map((c) => {
+      const r = c as Record<string, unknown>;
+      return {
+        id: String(r.id ?? ''),
+        name: String(r.name ?? ''),
+        email: String(r.email ?? ''),
+        phone: String(r.phone ?? ''),
+        visits: Number((r as { totalVisits?: number }).totalVisits ?? r.visits ?? 0),
+        spending: Number((r as { totalSpent?: number }).totalSpent ?? r.spending ?? 0),
+        vip: Boolean((r as { vip?: boolean }).vip),
+        visitHistory: Array.isArray((r as { visitHistory?: unknown }).visitHistory)
+          ? (r as { visitHistory: Customer['visitHistory'] }).visitHistory
+          : [],
+      };
+    });
+  }
+
+  // Load shifts from localStorage (no backend endpoint)
   const loadShiftsFromLocalStorage = () => {
     try {
       const savedShifts = localStorage.getItem('shifts');
@@ -537,44 +590,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refreshData = async () => {
     await loadAllData();
-  };
-
-  // Load functions - Frontend only mode
-  const loadServices = async () => {
-    setServices(mockServices);
-  };
-
-  const loadCustomers = async () => {
-    setCustomers(mockCustomers);
-  };
-
-  const loadAppointments = async () => {
-    setAppointments(mockAppointments);
-  };
-
-  const loadSales = async () => {
-    setSales(mockSales);
-  };
-
-  const loadInventory = async () => {
-    setInventory(mockInventory);
-  };
-
-  const loadAttendance = async () => {
-    setAttendanceRecords(mockAttendance);
-  };
-
-  const loadEmployees = async () => {
-    setEmployees(mockEmployees);
-  };
-
-  const loadExpenses = async () => {
-    setExpenses(mockExpenses);
-  };
-
-  const loadSettings = async () => {
-    // Frontend-only mode - use default settings
-    console.log('Using default settings (Frontend-Only Mode)');
   };
 
   // Helper functions to map backend data to frontend format
@@ -641,77 +656,145 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [darkMode]);
 
-  // Services functions - Frontend Only
+  // Services functions - integrated with API
   const addService = async (service: Omit<Service, 'id'>) => {
-    const newService = {
-      ...service,
-      id: Date.now().toString(),
-      active: service.active !== false,
-      salesCount: 0,
-    };
-    setServices([...services, newService]);
-    addNotification({
-      title: 'خدمة جديدة',
-      message: `تم إضافة خدمة "${service.name}" بنجاح`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم إضافة الخدمة بنجاح');
+    try {
+      const created = await serviceService.createService({
+        name: service.name,
+        category: service.category,
+        price: service.price,
+        duration: service.duration,
+        image: service.image,
+        active: service.active !== false,
+      });
+      const resolved = unwrapData<Service>(created) ?? {
+        ...service,
+        id: (created as Service)?.id ?? Date.now().toString(),
+        active: service.active !== false,
+        salesCount: 0,
+      };
+      if (typeof resolved === 'object' && 'id' in resolved) {
+        setServices((prev) => [...prev, resolved as Service]);
+      }
+      addNotification({
+        title: 'خدمة جديدة',
+        message: `تم إضافة خدمة "${service.name}" بنجاح`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم إضافة الخدمة بنجاح');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة الخدمة');
+      throw error;
+    }
   };
 
   const updateService = async (id: string, service: Partial<Service>) => {
-    setServices(
-      services.map((s) => (s.id === id ? { ...s, ...service } : s))
-    );
-    addNotification({
-      title: 'تحديث خدمة',
-      message: `تم تحديث خدمة "${service.name}" بنجاح`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم تحديث الخدمة بنجاح');
+    try {
+      const updated = await serviceService.updateService(id, {
+        name: service.name,
+        category: service.category,
+        price: service.price,
+        duration: service.duration,
+        image: service.image,
+        active: service.active,
+      });
+      const resolved = unwrapData<Service>(updated) ?? { ...services.find((s) => s.id === id), ...service };
+      if (resolved && typeof resolved === 'object') {
+        setServices((prev) =>
+          prev.map((s) => (s.id === id ? { ...s, ...resolved } : s))
+        );
+      }
+      addNotification({
+        title: 'تحديث خدمة',
+        message: `تم تحديث خدمة "${service.name ?? id}" بنجاح`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم تحديث الخدمة بنجاح');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث الخدمة');
+      throw error;
+    }
   };
 
   const deleteService = async (id: string) => {
     const service = services.find((s) => s.id === id);
-    setServices(services.filter((s) => s.id !== id));
-    addNotification({
-      title: 'حذف خدمة',
-      message: `تم حذف خدمة "${service?.name}" بنجاح`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم حذف الخدمة بنجاح');
+    try {
+      await serviceService.deleteService(id);
+      setServices((prev) => prev.filter((s) => s.id !== id));
+      addNotification({
+        title: 'حذف خدمة',
+        message: `تم حذف خدمة "${service?.name}" بنجاح`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم حذف الخدمة بنجاح');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء حذف الخدمة');
+      throw error;
+    }
   };
 
   // Customers functions - Frontend Only
   const addCustomer = async (customer: Omit<Customer, 'id'>): Promise<Customer> => {
-    const newCustomer: Customer = {
-      id: Date.now().toString(),
-      name: customer.name,
-      email: customer.email || '',
-      phone: customer.phone,
-      visits: customer.visits || 0,
-      spending: customer.spending || 0,
-      vip: customer.vip || false,
-      visitHistory: customer.visitHistory || [],
-    };
-    setCustomers([...customers, newCustomer]);
-    addNotification({
-      title: 'عميل جديد',
-      message: `تم إضافة عميل جديد "${customer.name}"`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم إضافة العميل بنجاح');
-    return newCustomer;
+    try {
+      const res = await customerService.create({
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email ?? '',
+        totalVisits: customer.visits ?? 0,
+        totalSpent: customer.spending ?? 0,
+        isActive: true,
+      });
+      const raw = unwrapData<{ id: string; name: string; phone: string; email?: string; totalVisits?: number; totalSpent?: number }>(res) ?? res as Record<string, unknown>;
+      const newCustomer: Customer = {
+        id: String(raw?.id ?? Date.now()),
+        name: String(raw?.name ?? customer.name),
+        email: String(raw?.email ?? customer.email ?? ''),
+        phone: String(raw?.phone ?? customer.phone),
+        visits: Number((raw as { totalVisits?: number })?.totalVisits ?? customer.visits ?? 0),
+        spending: Number((raw as { totalSpent?: number })?.totalSpent ?? customer.spending ?? 0),
+        vip: customer.vip ?? false,
+        visitHistory: customer.visitHistory ?? [],
+      };
+      setCustomers((prev) => [...prev, newCustomer]);
+      addNotification({
+        title: 'عميل جديد',
+        message: `تم إضافة عميل جديد "${customer.name}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم إضافة العميل بنجاح');
+      return newCustomer;
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة العميل');
+      throw error;
+    }
   };
 
   const updateCustomer = async (id: string, customer: Partial<Customer>) => {
-    setCustomers(
-      customers.map((c) => (c.id === id ? { ...c, ...customer } : c))
-    );
-    toast.success('تم تحديث العميل بنجاح');
+    try {
+      await customerService.update(id, {
+        name: customer.name,
+        phone: customer.phone,
+        email: customer.email,
+        totalVisits: customer.visits,
+        totalSpent: customer.spending,
+      });
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === id ? { ...c, ...customer } : c))
+      );
+      toast.success('تم تحديث العميل بنجاح');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث العميل');
+      throw error;
+    }
   };
 
   const deleteCustomer = async (id: string) => {
@@ -802,11 +885,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.success('تم حذف الموعد بنجاح');
   };
 
-  // Sales functions - Frontend Only
+  // Sales functions - integrated with API
   const addSale = async (sale: Omit<Sale, 'id'>) => {
-    // Find or create customer
-    let customerId = customers.find(c => c.phone === sale.customerPhone)?.id;
-
+    let customerId = customers.find((c) => c.phone === sale.customerPhone)?.id;
     if (!customerId && sale.customer && sale.customerPhone && sale.customer !== 'عميل نقدي') {
       try {
         const newCustomer = await addCustomer({
@@ -819,100 +900,108 @@ export function AppProvider({ children }: { children: ReactNode }) {
         console.error('Error creating customer:', error);
       }
     }
-
-    // Generate unique invoice number
-    const invoiceNumber = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
-
-    const newSale = {
-      ...sale,
-      id: invoiceNumber,
-    };
-    
-    const updatedSales = [...sales, newSale];
-    setSales(updatedSales);
-    
-    // Save to localStorage for persistence
-    localStorage.setItem('sales', JSON.stringify(updatedSales));
-    
-    //Update customer visits and spending
-    if (customerId) {
-      const customer = customers.find(c => c.id === customerId);
-      if (customer) {
-        updateCustomer(customerId, {
-          visits: (customer.visits || 0) + 1,
-          spending: (customer.spending || 0) + sale.amount,
-        });
+    try {
+      const created = await saleService.createSale({
+        customer: sale.customer,
+        customerPhone: sale.customerPhone,
+        service: sale.service,
+        amount: sale.amount,
+        discount: sale.discount,
+        status: sale.status,
+        date: sale.date,
+        category: sale.category,
+        items: sale.items,
+        paymentMethod: sale.paymentMethod,
+        notes: sale.notes,
+      });
+      const newSale = unwrapData<Sale>(created) ?? (created as Sale);
+      if (newSale && typeof newSale === 'object' && 'id' in newSale) {
+        setSales((prev) => [...prev, newSale as Sale]);
       }
+      if (customerId) {
+        const customer = customers.find((c) => c.id === customerId);
+        if (customer) {
+          updateCustomer(customerId, {
+            visits: (customer.visits ?? 0) + 1,
+            spending: (customer.spending ?? 0) + sale.amount,
+          });
+        }
+      }
+      addNotification({
+        title: 'عملية بيع جديدة',
+        message: `تم إضافة عملية بيع بقيمة ${sale.amount} ج.م`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم إضافة عملية البيع بنجاح');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة عملية البيع');
+      throw error;
     }
-    
-    addNotification({
-      title: 'عملية بيع جديدة',
-      message: `تم إضافة عملية بيع بقيمة ${sale.amount} ج.م`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم إضافة عملية البيع بنجاح');
   };
 
-  // Inventory functions
+  // Inventory functions - integrated with API
   const addInventoryItem = async (item: Omit<InventoryItem, 'id'>) => {
     try {
-      // Frontend-only mode: save to localStorage (NO SERVICE CALLS)
-      const newItem: InventoryItem = {
-        ...item,
-        id: Date.now().toString(),
-      };
-
-      const updatedInventory = [...inventory, newItem];
-      setInventory(updatedInventory);
-      localStorage.setItem('inventory', JSON.stringify(updatedInventory));
-
+      const created = await inventoryService.createInventoryItem({
+        name: item.name,
+        category: item.category,
+        stock: item.stock,
+        price: item.price,
+        minStock: item.minStock,
+        image: item.image,
+      });
+      const newItem = unwrapData<InventoryItem>(created) ?? (created as InventoryItem);
+      if (newItem && typeof newItem === 'object' && 'id' in newItem) {
+        setInventory((prev) => [...prev, newItem as InventoryItem]);
+      }
       addNotification({
-        title: 'منتج جدد في المخزون',
+        title: 'منتج جديد في المخزون',
         message: `تم إضافة "${item.name}" إلى المخزون`,
         time: 'الآن',
         read: false,
       });
       toast.success('تم إضافة المنتج بنجاح');
-    } catch (error: any) {
-      console.error('Error adding inventory item:', error);
-      toast.error(error.message || 'حدث خطأ أثناء إضافة المنتج');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة المنتج');
       throw error;
     }
   };
 
   const updateInventoryItem = async (id: string, item: Partial<InventoryItem>) => {
     try {
-      // Frontend-only mode: update in localStorage
-      const updatedInventory = inventory.map((i) =>
-        i.id === id ? { ...i, ...item } : i
+      await inventoryService.updateInventoryItem(id, {
+        name: item.name,
+        category: item.category,
+        stock: item.stock,
+        price: item.price,
+        minStock: item.minStock,
+        image: item.image,
+      });
+      setInventory((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, ...item } : i))
       );
-      setInventory(updatedInventory);
-      localStorage.setItem('inventory', JSON.stringify(updatedInventory));
-
       addNotification({
         title: 'تحديث مخزون',
-        message: `تم تحديث بيانات المنتج "${item.name}"`,
+        message: `تم تحديث بيانات المنتج "${item.name ?? id}"`,
         time: 'الآن',
         read: false,
       });
       toast.success('تم تحديث المنتج بنجاح');
-    } catch (error: any) {
-      console.error('Error updating inventory item:', error);
-      toast.error(error.message || 'حدث خطأ أثناء تحديث المنتج');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث المنتج');
       throw error;
     }
   };
 
   const deleteInventoryItem = async (id: string) => {
+    const item = inventory.find((i) => i.id === id);
     try {
-      const item = inventory.find((i) => i.id === id);
-      
-      // Frontend-only mode: delete from localStorage
-      const updatedInventory = inventory.filter((i) => i.id !== id);
-      setInventory(updatedInventory);
-      localStorage.setItem('inventory', JSON.stringify(updatedInventory));
-
+      await inventoryService.deleteInventoryItem(id);
+      setInventory((prev) => prev.filter((i) => i.id !== id));
       addNotification({
         title: 'حذف منتج من المخزون',
         message: `تم حذف "${item?.name}" من المخزون`,
@@ -920,9 +1009,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         read: false,
       });
       toast.success('تم حذف المنتج بنجاح');
-    } catch (error: any) {
-      console.error('Error deleting inventory item:', error);
-      toast.error(error.message || 'حدث خطأ أثناء حذف المنتج');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء حذف المنتج');
       throw error;
     }
   };
@@ -1243,11 +1332,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           updatedInventory.push(newProduct);
         }
       });
-      
+
       setInventory(updatedInventory);
-      localStorage.setItem('inventory', JSON.stringify(updatedInventory));
     }
-    
+
     addNotification({
       title: 'فاتورة شراء جديدة',
       message: `تم إضافة فاتورة شراء جديدة من "${invoice.supplierName}" وإضافة المنتجات للمخزون`,
@@ -1326,20 +1414,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotifications([newNotification, ...notifications]);
   };
 
-  // Users functions - Persistent localStorage storage
+  // Users functions - state only (users loaded from API)
   const addUser = (user: Omit<User, 'id'>) => {
     const newUser: User = {
       ...user,
       id: Date.now().toString(),
     };
-    
-    const updatedUsers = [...users, newUser];
-    setUsers(updatedUsers);
-    localStorage.setItem('users', JSON.stringify(updatedUsers)); // Save to localStorage
-    
+    setUsers((prev) => [...prev, newUser]);
     addNotification({
       title: 'مستخدم جديد',
-      message: `تم إضافة مستخدم جديد \"${user.name}\"`,
+      message: `تم إضافة مستخدم جديد "${user.name}"`,
       time: 'الآن',
       read: false,
     });
@@ -1347,19 +1431,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateUser = (id: string, user: Partial<User>) => {
-    const updatedUsers = users.map((u) => (u.id === id ? { ...u, ...user } : u));
-    setUsers(updatedUsers);
-    localStorage.setItem('users', JSON.stringify(updatedUsers)); // Save to localStorage
-    
+    setUsers((prev) =>
+      prev.map((u) => (u.id === id ? { ...u, ...user } : u))
+    );
     toast.success('تم تحديث المستخدم بنجاح');
   };
 
   const deleteUser = (id: string) => {
     const user = users.find((u) => u.id === id);
-    const updatedUsers = users.filter((u) => u.id !== id);
-    setUsers(updatedUsers);
-    localStorage.setItem('users', JSON.stringify(updatedUsers)); // Save to localStorage
-    
+    setUsers((prev) => prev.filter((u) => u.id !== id));
     addNotification({
       title: 'حذف مستخدم',
       message: `تم حذف المستخدم \"${user?.name}\" من النظام`,
@@ -1373,10 +1453,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (currentUser) {
       const updated = { ...currentUser, ...user };
       setCurrentUser(updated);
-      
-      const updatedUsers = users.map((u) => (u.id === currentUser.id ? updated : u));
-      setUsers(updatedUsers);
-      localStorage.setItem('users', JSON.stringify(updatedUsers)); // Save to localStorage
+      setUsers((prev) =>
+        prev.map((u) => (u.id === currentUser.id ? updated : u))
+      );
     }
   };
 
@@ -1384,9 +1463,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const user = users.find((u) => u.id === userId);
     if (user) {
       setCurrentUser(user);
-      // Save current user to localStorage for persistence
-      localStorage.setItem('currentUser', JSON.stringify(user));
       toast.success(`مرحباً ${user.name}`);
+    }
+  };
+
+  const loginWithCredentials = async (
+    credentials: { username: string; password: string }
+  ): Promise<boolean> => {
+    try {
+      const response = await authService.login(credentials);
+      const userData = response?.data?.user ?? (response as { user?: unknown })?.user;
+      if (userData && typeof userData === 'object') {
+        const user = mapAuthUserToContextUser(
+          userData as Record<string, unknown>
+        );
+        setCurrentUser(user);
+        toast.success(`مرحباً ${user.name}`);
+        loadAllData().catch((err) => {
+          console.warn('Background data load after login failed:', err);
+        });
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
   };
 
@@ -1406,20 +1506,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     setCurrentUser(null);
-    // Remove current user from localStorage
-    localStorage.removeItem('currentUser');
+    authService.logout();
     toast.success('تم تسجيل الخروج بنجاح');
   };
 
-  // System Settings functions - Frontend Only
+  // System Settings - integrated with API
   const updateSystemSettings = async (settings: Partial<SystemSettings>) => {
     try {
-      // Frontend-only mode: update in state
-      setSystemSettings({ ...systemSettings, ...settings });
+      const payload = {
+        businessName: settings.shopName,
+        businessAddress: settings.address,
+        businessPhone: settings.phone,
+        businessEmail: settings.email,
+        currency: settings.currency,
+        language: settings.language,
+        workingHours: settings.workingHours,
+      };
+      await settingService.updateSettings(payload);
+      setSystemSettings((prev) => ({ ...prev, ...settings }));
       toast.success('تم تحديث الإعدادات بنجاح');
-    } catch (error: any) {
-      console.error('Error updating settings:', error);
-      toast.error(error.message || 'حدث خطأ أثناء تحديث الإعدادات');
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث الإعدادات');
       throw error;
     }
   };
@@ -1491,6 +1599,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteUser,
     updateCurrentUser,
     loginUser,
+    loginWithCredentials,
     logoutUser,
     systemSettings,
     updateSystemSettings,
@@ -1512,4 +1621,4 @@ export function useApp() {
   return context;
 }
 
-export default AppContext;
+export { AppContext };

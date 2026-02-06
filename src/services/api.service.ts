@@ -10,12 +10,16 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor - Add auth token
+// Request interceptor - Add auth token and log in dev (so you can see login in Network)
 apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('authToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    if (import.meta.env.DEV && config.url) {
+      const fullUrl = (config.baseURL ?? '') + config.url;
+      console.log(`[API] ${config.method?.toUpperCase()} ${fullUrl}`);
     }
     return config;
   },
@@ -31,14 +35,18 @@ apiClient.interceptors.response.use(
   },
   (error: AxiosError) => {
     if (error.response) {
-      // Server responded with error
       const status = error.response.status;
-      
+      const requestUrl = (error.config?.url ?? '').toLowerCase();
+
       if (status === 401) {
-        // Unauthorized - Clear token and redirect to login
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('user');
-        window.location.href = '/login';
+        // Don't redirect on 401 for login/register – let the form show the error
+        const isAuthRequest =
+          requestUrl.includes('/auth/login') || requestUrl.includes('/auth/register');
+        if (!isAuthRequest) {
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('user');
+          window.location.href = '/login';
+        }
       } else if (status === 403) {
         // Forbidden - No permission
         console.log('Access denied');

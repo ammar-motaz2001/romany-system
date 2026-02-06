@@ -8,35 +8,35 @@ import { useTranslation } from '@/app/hooks/useTranslation';
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { users, loginUser, currentUser } = useApp();
+  const { loginWithCredentials, currentUser } = useApp();
   const { t, currentLanguage } = useTranslation();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Redirect to dashboard if already logged in
   useEffect(() => {
     if (currentUser) {
-      navigate('/dashboard');
+      navigate('/dashboard', { replace: true });
     }
   }, [currentUser, navigate]);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-
-    // Find user by username
-    const user = users.find(
-      (u) => u.username === username && u.password === password
-    );
-
-    if (user) {
-      // Login successful
-      loginUser(user.id);
-      navigate('/dashboard');
-    } else {
-      // Login failed
-      setError(currentLanguage === 'ar' ? 'اسم المستخدم أو كلمة المرور غير صحيحة' : 'Invalid username or password');
+    setIsSubmitting(true);
+    try {
+      const success = await loginWithCredentials({ username, password });
+      if (!success) {
+        setError(
+          currentLanguage === 'ar'
+            ? 'اسم المستخدم أو كلمة المرور غير صحيحة'
+            : 'Invalid username or password'
+        );
+      }
+      // Redirect is handled by useEffect when currentUser is set (avoids race with context update)
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -118,9 +118,10 @@ export default function LoginPage() {
 
             <Button
               type="submit"
+              disabled={isSubmitting}
               className="w-full bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white py-6 rounded-xl text-lg font-medium"
             >
-              {t('login')}
+              {isSubmitting ? (currentLanguage === 'ar' ? 'جاري الدخول...' : 'Signing in...') : t('login')}
             </Button>
 
             <div className="text-center">

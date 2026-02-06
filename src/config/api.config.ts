@@ -1,5 +1,6 @@
-// API Configuration
-export const API_BASE_URL = 'https://backend-twice.vercel.app';
+// API Configuration – base URL must include /api to match backend (app.use('/api/...', routes))
+export const API_BASE_URL =
+  import.meta.env.VITE_API_URL ?? 'https://backend-twice.vercel.app/api';
 
 // API Endpoints
 export const API_ENDPOINTS = {
