@@ -1,0 +1,240 @@
+/* Print Styles for Invoices and Reports */
+@media print {
+  /* Reset and setup */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Hide everything by default */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show only the print content */
+  .print-content,
+  .print-content * {
+    visibility: visible !important;
+  }
+
+  .print-content {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: white !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Hide elements that shouldn't be printed */
+  .no-print,
+  button,
+  .fixed,
+  nav,
+  header,
+  footer,
+  aside,
+  [role="dialog"]:not(.print-content),
+  .bg-black\/50 {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Page setup */
+  @page {
+    size: A4 portrait;
+    margin: 15mm;
+  }
+
+  /* Body setup */
+  body {
+    font-size: 12pt;
+    line-height: 1.5;
+    color: black !important;
+    background: white !important;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Typography for print */
+  h1 {
+    font-size: 24pt;
+    margin-bottom: 10pt;
+    color: black !important;
+  }
+
+  h2 {
+    font-size: 18pt;
+    margin-bottom: 8pt;
+    color: black !important;
+  }
+
+  h3 {
+    font-size: 14pt;
+    margin-bottom: 6pt;
+    color: black !important;
+  }
+
+  p {
+    margin-bottom: 6pt;
+  }
+
+  /* Tables */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    page-break-inside: avoid;
+    margin: 10pt 0;
+  }
+
+  th,
+  td {
+    border: 1px solid #ddd;
+    padding: 8pt;
+    text-align: right;
+  }
+
+  th {
+    background-color: #f5f5f5 !important;
+    font-weight: bold;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Avoid page breaks */
+  .avoid-break,
+  .invoice-container,
+  .report-container {
+    page-break-inside: avoid;
+  }
+
+  /* Links */
+  a {
+    text-decoration: none;
+    color: black !important;
+  }
+
+  a[href]:after {
+    content: none !important;
+  }
+
+  /* Colors - preserve important colors */
+  .bg-purple-600,
+  .bg-pink-600,
+  .bg-pink-500,
+  .bg-blue-600,
+  .text-pink-500,
+  .text-purple-600 {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Borders */
+  .border-purple-600,
+  .border-pink-500 {
+    border-color: #e91e63 !important;
+  }
+
+  /* Invoice specific styles */
+  .invoice-header,
+  .header {
+    border-bottom: 3px solid #e91e63 !important;
+    padding-bottom: 15pt;
+    margin-bottom: 15pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .invoice-footer {
+    border-top: 2px solid #ddd;
+    padding-top: 15pt;
+    margin-top: 15pt;
+  }
+
+  .invoice-total {
+    font-size: 18pt;
+    font-weight: bold;
+    border-top: 2px solid #333;
+    padding-top: 10pt;
+    margin-top: 10pt;
+  }
+
+  /* Card/Container styles */
+  .invoice-container,
+  .report-container {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 20pt !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: white !important;
+  }
+
+  /* Remove shadows and rounded corners */
+  * {
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
+
+  /* Preserve gradients and backgrounds for branding */
+  [style*="linear-gradient"],
+  [style*="background: linear-gradient"] {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Grid and Flex layouts */
+  .grid,
+  .flex {
+    display: block !important;
+  }
+
+  /* Spacing adjustments */
+  .mb-2,
+  .mb-4,
+  .mb-6 {
+    margin-bottom: 10pt;
+  }
+
+  .mt-2,
+  .mt-4,
+  .mt-6 {
+    margin-top: 10pt;
+  }
+
+  /* Text alignment */
+  .text-center {
+    text-align: center !important;
+  }
+
+  .text-right {
+    text-align: right !important;
+  }
+
+  .text-left {
+    text-align: left !important;
+  }
+
+  /* Font weights */
+  .font-bold {
+    font-weight: bold !important;
+  }
+
+  /* Prevent content from being cut off */
+  img {
+    max-width: 100%;
+    page-break-inside: avoid;
+  }
+
+  /* Make sure print content is visible */
+  .print-content .invoice-container,
+  .print-content .report-container {
+    position: relative !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  }
+}
