@@ -354,6 +354,7 @@ interface AppContextType {
   
   // Employees
   employees: Employee[];
+  fetchEmployees: () => Promise<void>;
   addEmployee: (employee: Omit<Employee, 'id'>) => Promise<void>;
   updateEmployee: (id: string, employee: Partial<Employee>) => Promise<void>;
   deleteEmployee: (id: string) => Promise<void>;
@@ -1638,22 +1639,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.success('تم تحديث الأخصائية بنجاح');
   };
 
-  // Employees functions - integrated with API
+  // Fetch employees from API (used by إدارة الموظفين for real-time list)
+  const fetchEmployees = useCallback(async () => {
+    if (!authService.isAuthenticated()) return;
+    try {
+      const res = await employeeService.getAllEmployees();
+      const list = unwrapList(res);
+      setEmployees(mapBackendEmployeesToContext(list));
+    } catch (error) {
+      console.error('Error fetching employees:', error);
+    }
+  }, []);
+
+  // Employees functions - integrated with API (add from endpoint, appear in real time)
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
+    const baseSalaryNum = Number(employee.baseSalary);
+    const hireDateStr =
+      (employee.hireDate && String(employee.hireDate).trim()) ||
+      new Date().toISOString().split('T')[0];
+    if (Number.isNaN(baseSalaryNum) || baseSalaryNum < 0) {
+      toast.error('الراتب الأساسي مطلوب ويجب أن يكون رقماً صحيحاً');
+      return;
+    }
+    if (!hireDateStr) {
+      toast.error('تاريخ التعيين مطلوب');
+      return;
+    }
     try {
       const created = await employeeService.createEmployee({
         name: employee.name,
         position: employee.position,
         phone: employee.phone,
-        salary: employee.baseSalary,
-        commission: employee.commission,
-        startDate: employee.hireDate,
+        salary: baseSalaryNum,
+        baseSalary: baseSalaryNum,
+        commission: employee.commission ?? 0,
+        startDate: hireDateStr,
+        hireDate: hireDateStr,
       });
       const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
-      const mapped = mapBackendEmployeesToContext([raw])[0];
-      if (mapped && mapped.id) {
-        setEmployees((prev) => [...prev, mapped]);
-      }
+      const mapped = raw ? mapBackendEmployeesToContext([raw])[0] : null;
+      const id = mapped?.id || String(raw?.id ?? raw?._id ?? Date.now());
+      const toAdd: Employee = mapped && mapped.id
+        ? mapped
+        : {
+            id,
+            name: employee.name,
+            phone: employee.phone ?? '',
+            position: employee.position,
+            hireDate: employee.hireDate,
+            salaryType: employee.salaryType ?? 'شهري',
+            baseSalary: employee.baseSalary ?? 0,
+            workDays: employee.workDays ?? 22,
+            shiftHours: employee.shiftHours ?? 8,
+            hourlyRate: employee.hourlyRate,
+            commission: employee.commission ?? 0,
+            status: employee.status ?? 'نشط',
+            latePenaltyPerMinute: employee.latePenaltyPerMinute,
+            absencePenaltyPerDay: employee.absencePenaltyPerDay,
+            customDeductions: employee.customDeductions,
+          };
+      setEmployees((prev) => [...prev, toAdd]);
       addNotification({
         title: 'موظف جديد',
         message: `تم إضافة موظف جديد "${employee.name}"`,
@@ -2334,6 +2379,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     addSpecialist,
     updateSpecialist,
     employees,
+    fetchEmployees,
     addEmployee,
     updateEmployee,
     deleteEmployee,

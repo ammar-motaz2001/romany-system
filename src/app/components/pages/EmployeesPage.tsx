@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Plus, Edit, Trash2, Search, UserPlus, Phone, Briefcase, Calendar, DollarSign } from 'lucide-react';
 import { Card } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
@@ -7,8 +7,13 @@ import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
 
 export default function EmployeesPage() {
-  const { employees, addEmployee, updateEmployee, deleteEmployee } = useApp();
+  const { employees, fetchEmployees, addEmployee, updateEmployee, deleteEmployee } = useApp();
   const [showAddDialog, setShowAddDialog] = useState(false);
+
+  // Load employees from API when إدارة الموظفين page is opened (real time from endpoint)
+  useEffect(() => {
+    fetchEmployees();
+  }, [fetchEmployees]);
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -265,7 +270,15 @@ function EmployeeDialog({ employee, onClose, onSave }: any) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    const baseSalary = Number(formData.baseSalary);
+    const hireDate =
+      (formData.hireDate && String(formData.hireDate).trim()) ||
+      new Date().toISOString().split('T')[0];
+    onSave({
+      ...formData,
+      baseSalary: Number.isNaN(baseSalary) ? 0 : baseSalary,
+      hireDate,
+    });
   };
 
   return (

@@ -23,8 +23,10 @@ export interface CreateEmployeeData {
   phone?: string;
   image?: string;
   salary?: number;
+  baseSalary?: number;
   commission?: number;
   startDate?: string;
+  hireDate?: string;
 }
 
 export interface UpdateEmployeeData extends Partial<CreateEmployeeData> {}

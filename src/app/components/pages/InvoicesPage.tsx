@@ -48,12 +48,12 @@ import { toast } from 'sonner';
 
 export default function InvoicesPage() {
   // sales = same data as المبيعات (POS); new sale added in POS appears here without refresh
-  const { sales, customers, shifts, currentUser, systemSettings } = useApp();
+  const { sales, customers, shifts, currentUser, systemSettings, refreshData } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'current' | 'all'>('current');
+  const [viewMode, setViewMode] = useState<'current' | 'all'>('all');
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
 
@@ -556,11 +556,20 @@ export default function InvoicesPage() {
               الفواتير
             </h1>
             <p className="text-gray-600 dark:text-gray-400 mt-2">
-              إدارة ومتابعة جميع الفواتير
+              إدارة ومتابعة جميع الفواتير — عرض {filteredInvoices.length} فاتورة من البيانات المحملة
             </p>
           </div>
 
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => refreshData()}
+              title="تحديث الفواتير من الخادم"
+            >
+              <RefreshCw className="w-4 h-4" />
+              تحديث
+            </Button>
             <Button 
               variant="outline" 
               className="gap-2"
