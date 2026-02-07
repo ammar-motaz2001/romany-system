@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { 
   ArrowRight, DollarSign, TrendingUp, AlertTriangle, FileText, 
-  Clock, Calendar, Printer, CheckCircle, XCircle, Award, Plus, X
+  Clock, Calendar, Printer, CheckCircle, XCircle, Award, Plus, X, Loader2
 } from 'lucide-react';
 import { Card } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
 import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
+import { payrollService, type PayslipResponse } from '@/services/payroll.service';
 
 export default function EmployeePayrollDetailsPage() {
   const { employeeId } = useParams();
@@ -15,7 +16,9 @@ export default function EmployeePayrollDetailsPage() {
   const { employees, attendanceRecords, sales, bonuses, addBonus, deleteBonus, currentUser } = useApp();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-  
+  const [payslipFromAPI, setPayslipFromAPI] = useState<PayslipResponse | null>(null);
+  const [loadingPayslip, setLoadingPayslip] = useState(true);
+
   // Bonus Dialog State
   const [showBonusDialog, setShowBonusDialog] = useState(false);
   const [bonusAmount, setBonusAmount] = useState('');
@@ -31,10 +34,21 @@ export default function EmployeePayrollDetailsPage() {
 
   // Redirect if employee not found
   useEffect(() => {
-    if (!employee) {
+    if (employees.length > 0 && !employee) {
       navigate('/payroll');
     }
-  }, [employee, navigate]);
+  }, [employees.length, employee, navigate]);
+
+  // Fetch payslip from API when employeeId / month / year change
+  useEffect(() => {
+    if (!employeeId) return;
+    setLoadingPayslip(true);
+    payrollService
+      .getEmployeePayslip(employeeId, { month: selectedMonth, year: selectedYear })
+      .then((data) => setPayslipFromAPI(data))
+      .catch(() => setPayslipFromAPI(null))
+      .finally(() => setLoadingPayslip(false));
+  }, [employeeId, selectedMonth, selectedYear]);
 
   if (!employee) {
     return null;
@@ -50,35 +64,30 @@ export default function EmployeePayrollDetailsPage() {
     );
   });
 
-  // Calculate attendance stats
-  const presentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'متأخر').length;
-  const lateDays = monthAttendance.filter(r => r.status === 'متأخر').length;
-  const absentDays = monthAttendance.filter(r => r.status === 'غائب').length;
-  const leaveDays = monthAttendance.filter(r => r.status === 'إجازة').length;
+  // Local calculation (used when API payslip is not available)
+  const localPresentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'تأخير').length;
+  const localLateDays = monthAttendance.filter(r => r.status === 'تأخير').length;
+  const localAbsentDays = monthAttendance.filter(r => r.status === 'غائب').length;
+  const localLeaveDays = monthAttendance.filter(r => r.status === 'إجازة').length;
 
-  // Calculate work hours
-  let totalWorkHours = 0;
-  let overtimeHours = 0;
-  let totalLateMinutes = 0;
-
+  let localTotalWorkHours = 0;
+  let localOvertimeHours = 0;
+  let localTotalLateMinutes = 0;
   monthAttendance.forEach(record => {
     if (record.workHours) {
       const hours = parseFloat(record.workHours);
-      totalWorkHours += hours;
-      
+      localTotalWorkHours += hours;
       if (hours > employee.shiftHours) {
-        overtimeHours += hours - employee.shiftHours;
+        localOvertimeHours += hours - employee.shiftHours;
       }
     }
-    
-    if (record.status === 'متأخر' && record.lateMinutes) {
-      totalLateMinutes += parseInt(record.lateMinutes);
+    if ((record.status === 'تأخير' || record.status === 'متأخر') && record.lateMinutes) {
+      localTotalLateMinutes += parseInt(record.lateMinutes);
     }
   });
 
-  // Calculate commission from sales
-  let commission = 0;
-  let totalSalesAmount = 0;
+  let localCommission = 0;
+  let localTotalSalesAmount = 0;
   if (employee.commission > 0) {
     const employeeSales = sales.filter(sale => {
       const saleDate = new Date(sale.date || sale.createdAt);
@@ -88,56 +97,68 @@ export default function EmployeePayrollDetailsPage() {
         saleDate.getFullYear() === selectedYear
       );
     });
-    
-    totalSalesAmount = employeeSales.reduce((acc, sale) => acc + (sale.total || sale.amount), 0);
-    commission = (totalSalesAmount * employee.commission) / 100;
+    localTotalSalesAmount = employeeSales.reduce((acc, sale) => acc + (sale.total || sale.amount), 0);
+    localCommission = (localTotalSalesAmount * employee.commission) / 100;
   }
 
-  // Calculate salary
-  let baseSalary = employee.baseSalary;
-  let salaryNote = '';
-  
+  let localBaseSalary = employee.baseSalary;
+  let localSalaryNote = '';
   if (employee.salaryType === 'يومي') {
-    baseSalary = (employee.baseSalary / employee.workDays) * presentDays;
-    salaryNote = `راتب يومي: ${employee.baseSalary} ÷ ${employee.workDays} يوم × ${presentDays} يوم حضور`;
+    localBaseSalary = (employee.baseSalary / employee.workDays) * localPresentDays;
+    localSalaryNote = `راتب يومي: ${employee.baseSalary} ÷ ${employee.workDays} يوم × ${localPresentDays} يوم حضور`;
   } else if (employee.salaryType === 'بالساعة') {
-    baseSalary = employee.hourlyRate * totalWorkHours;
-    salaryNote = `راتب بالساعة: ${employee.hourlyRate} ج.م × ${totalWorkHours.toFixed(2)} ساعة`;
+    localBaseSalary = (employee.hourlyRate ?? 0) * localTotalWorkHours;
+    localSalaryNote = `راتب بالساعة: ${employee.hourlyRate} ج.م × ${localTotalWorkHours.toFixed(2)} ساعة`;
   } else {
-    salaryNote = `راتب شهري ثابت`;
+    localSalaryNote = `راتب شهري ثابت`;
   }
 
-  // Calculate deductions with details
   const latePenaltyPerMinute = employee.latePenaltyPerMinute || 0;
   const absencePenaltyPerDay = employee.absencePenaltyPerDay || 0;
-  const customDeductions = employee.customDeductions || 0;
-  
-  const lateDeduction = totalLateMinutes * latePenaltyPerMinute;
-  const absentDeduction = absentDays * absencePenaltyPerDay;
+  const customDeductionsAmount = employee.customDeductions || 0;
+  const localLateDeduction = localTotalLateMinutes * latePenaltyPerMinute;
+  const localAbsentDeduction = localAbsentDays * absencePenaltyPerDay;
 
-  // Calculate overtime pay (bonus)
-  const hourlyRate = employee.salaryType === 'بالساعة' 
-    ? employee.hourlyRate 
+  const hourlyRate = employee.salaryType === 'بالساعة'
+    ? (employee.hourlyRate ?? 0)
     : employee.baseSalary / (employee.workDays * employee.shiftHours);
-  const overtimePay = overtimeHours * hourlyRate * 1.5;
+  const localOvertimePay = localOvertimeHours * hourlyRate * 1.5;
 
-  // Calculate advances (السلف)
-  const advances = monthAttendance.reduce((acc, record) => {
+  const localAdvances = monthAttendance.reduce((acc, record) => {
     return acc + (record.advance ? parseFloat(record.advance) : 0);
   }, 0);
-
-  // Get advance details
-  const advanceDetails = monthAttendance
+  const localAdvanceDetails = monthAttendance
     .filter(record => record.advance && parseFloat(record.advance) > 0)
     .map(record => ({
       date: new Date(record.date).toLocaleDateString('ar-EG'),
       amount: parseFloat(record.advance)
     }));
 
-  // Final calculations
-  const totalEarnings = baseSalary + commission + overtimePay;
-  const totalDeductions = lateDeduction + absentDeduction + customDeductions + advances;
-  const netSalary = totalEarnings - totalDeductions;
+  const localTotalEarnings = localBaseSalary + localCommission + localOvertimePay;
+  const localTotalDeductions = localLateDeduction + localAbsentDeduction + customDeductionsAmount + localAdvances;
+  const localNetSalary = localTotalEarnings - localTotalDeductions;
+
+  // Use API payslip when available, otherwise local calculation
+  const presentDays = payslipFromAPI?.presentDays ?? localPresentDays;
+  const lateDays = payslipFromAPI?.lateDays ?? localLateDays;
+  const absentDays = payslipFromAPI?.absentDays ?? localAbsentDays;
+  const leaveDays = payslipFromAPI?.leaveDays ?? localLeaveDays;
+  const totalWorkHours = payslipFromAPI?.totalWorkHours ?? localTotalWorkHours;
+  const overtimeHours = payslipFromAPI?.overtimeHours ?? localOvertimeHours;
+  const totalLateMinutes = payslipFromAPI?.totalLateMinutes ?? localTotalLateMinutes;
+  const commission = payslipFromAPI?.commission ?? localCommission;
+  const totalSalesAmount = payslipFromAPI?.totalSalesAmount ?? localTotalSalesAmount;
+  const baseSalary = payslipFromAPI?.baseSalary ?? localBaseSalary;
+  const salaryNote = payslipFromAPI?.salaryNote ?? localSalaryNote;
+  const lateDeduction = payslipFromAPI?.lateDeduction ?? localLateDeduction;
+  const absentDeduction = payslipFromAPI?.absentDeduction ?? localAbsentDeduction;
+  const customDeductions = customDeductionsAmount;
+  const overtimePay = payslipFromAPI?.overtimePay ?? localOvertimePay;
+  const advances = payslipFromAPI?.advances ?? localAdvances;
+  const advanceDetails = payslipFromAPI?.advanceDetails ?? localAdvanceDetails;
+  const totalEarnings = payslipFromAPI?.totalEarnings ?? localTotalEarnings;
+  const totalDeductions = payslipFromAPI?.totalDeductions ?? localTotalDeductions;
+  const netSalary = payslipFromAPI?.netSalary ?? localNetSalary;
 
   // Print payslip function
   const printPayslip = () => {
@@ -525,6 +546,24 @@ export default function EmployeePayrollDetailsPage() {
       <Header title="كشف راتب الموظف" />
 
       <div className="p-4 sm:p-6 lg:p-8">
+        {/* Loading / source indicator */}
+        {loadingPayslip && (
+          <div className="mb-4 flex items-center gap-2 rounded-lg bg-blue-50 px-4 py-2 text-blue-700">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span>جاري تحميل كشف الراتب من السيرفر...</span>
+          </div>
+        )}
+        {!loadingPayslip && payslipFromAPI && (
+          <div className="mb-4 rounded-lg bg-green-50 px-4 py-2 text-sm text-green-700">
+            ✓ بيانات كشف الراتب من السيرفر
+          </div>
+        )}
+        {!loadingPayslip && !payslipFromAPI && employeeId && (
+          <div className="mb-4 rounded-lg bg-amber-50 px-4 py-2 text-sm text-amber-700">
+            عرض محسوب من بيانات الحضور والمبيعات (السيرفر لم يعد كشف راتب لهذا الشهر)
+          </div>
+        )}
+
         {/* Back Button & Print */}
         <div className="flex items-center justify-between mb-6">
           <Button
@@ -537,6 +576,7 @@ export default function EmployeePayrollDetailsPage() {
 
           <Button
             onClick={printPayslip}
+            disabled={loadingPayslip}
             className="bg-gradient-to-r from-pink-500 to-purple-600 text-white"
           >
             <Printer className="w-4 h-4 ml-2" />

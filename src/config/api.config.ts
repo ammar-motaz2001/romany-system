@@ -108,6 +108,7 @@ export const API_ENDPOINTS = {
     GET_POSITIONS: '/employees/positions',
     GET_STATS: '/employees/stats',
     GET_BY_ID: (id: string) => `/employees/${id}`,
+    GET_PAYSLIP: (id: string) => `/employees/${id}/payroll`,
     CREATE: '/employees',
     UPDATE: (id: string) => `/employees/${id}`,
     TERMINATE: (id: string) => `/employees/${id}/terminate`,

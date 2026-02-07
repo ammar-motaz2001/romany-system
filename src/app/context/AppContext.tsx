@@ -1839,9 +1839,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (employee.name != null) payload.name = employee.name;
       if (employee.position != null) payload.position = employee.position;
       if (employee.phone != null) payload.phone = employee.phone;
-      if (employee.baseSalary != null) payload.salary = employee.baseSalary;
+      if (employee.baseSalary != null) {
+        payload.salary = employee.baseSalary;
+        payload.baseSalary = employee.baseSalary;
+      }
       if (employee.commission != null) payload.commission = employee.commission;
-      if (employee.hireDate != null) payload.startDate = employee.hireDate;
+      if (employee.hireDate != null) {
+        payload.startDate = employee.hireDate;
+        payload.hireDate = employee.hireDate;
+      }
+      if (employee.salaryType != null) payload.salaryType = employee.salaryType;
+      if (employee.workDays != null) payload.workDays = employee.workDays;
+      if (employee.shiftHours != null) payload.shiftHours = employee.shiftHours;
+      if (employee.hourlyRate != null) payload.hourlyRate = employee.hourlyRate;
+      if (employee.status != null) payload.status = employee.status;
+      if (employee.latePenaltyPerMinute != null) payload.latePenaltyPerMinute = employee.latePenaltyPerMinute;
+      if (employee.absencePenaltyPerDay != null) payload.absencePenaltyPerDay = employee.absencePenaltyPerDay;
+      if (employee.customDeductions != null) payload.customDeductions = employee.customDeductions;
 
       await employeeService.updateEmployee(normalizedId, payload);
       setEmployees((prev) =>

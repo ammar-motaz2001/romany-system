@@ -29,7 +29,16 @@ export interface CreateEmployeeData {
   hireDate?: string;
 }
 
-export interface UpdateEmployeeData extends Partial<CreateEmployeeData> {}
+export interface UpdateEmployeeData extends Partial<CreateEmployeeData> {
+  salaryType?: string;
+  workDays?: number;
+  shiftHours?: number;
+  hourlyRate?: number;
+  status?: string;
+  latePenaltyPerMinute?: number;
+  absencePenaltyPerDay?: number;
+  customDeductions?: number;
+}
 
 export interface TerminateEmployeeData {
   terminationDate: string;

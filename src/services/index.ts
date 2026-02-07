@@ -15,6 +15,7 @@ export { notificationService, default as notification } from './notification.ser
 export { default as supplier } from './supplier.service';
 export { default as purchaseInvoice } from './purchaseInvoice.service';
 export { shiftService, default as shift } from './shift.service';
+export { payrollService, default as payroll } from './payroll.service';
 
 // Re-export types
 export type { LoginCredentials, RegisterData, User, AuthResponse } from './auth.service';
@@ -31,3 +32,4 @@ export type { SystemSettings } from './setting.service';
 export type { Notification, CreateNotificationData } from './notification.service';
 export type { Supplier, CreateSupplierDTO, UpdateSupplierDTO } from './supplier.service';
 export type { PurchaseInvoice, PurchaseInvoiceItem, CreatePurchaseInvoiceDTO, UpdatePurchaseInvoiceDTO } from './purchaseInvoice.service';
+export type { PayslipResponse, GetPayslipParams } from './payroll.service';

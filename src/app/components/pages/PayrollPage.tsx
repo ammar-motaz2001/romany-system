@@ -30,8 +30,8 @@ export default function PayrollPage() {
       );
     });
 
-    const presentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'متأخر').length;
-    const lateDays = monthAttendance.filter(r => r.status === 'متأخر').length;
+    const presentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'تأخير').length;
+    const lateDays = monthAttendance.filter(r => r.status === 'تأخير').length;
     const absentDays = monthAttendance.filter(r => r.status === 'غائب').length;
     const leaveDays = monthAttendance.filter(r => r.status === 'إجازة').length;
 
