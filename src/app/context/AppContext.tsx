@@ -476,7 +476,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setServices(
         servicesRes.status === 'fulfilled'
-          ? unwrapList<Service>(servicesRes.value)
+          ? mapBackendServicesToContext(unwrapList(servicesRes.value))
           : []
       );
       setCustomers(
@@ -740,6 +740,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [darkMode]);
 
+  /** Normalize backend services list so every service has a string id (no undefined) */
+  function mapBackendServicesToContext(list: unknown[]): Service[] {
+    return list.map((item, index) => {
+      const r = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      return {
+        id: String(r.id ?? r._id ?? `svc-${index}-${Date.now()}`),
+        name: String(r.name ?? ''),
+        category: String(r.category ?? ''),
+        price: Number(r.price ?? 0),
+        duration: r.duration != null ? String(r.duration) : undefined,
+        image: r.image as string | undefined,
+        active: r.active !== undefined ? Boolean(r.active) : true,
+        salesCount: typeof r.salesCount === 'number' ? r.salesCount : 0,
+      };
+    });
+  }
+
   /** Normalize backend service shape so context and المبيعات (POS) get correct fields */
   function mapBackendServiceToContext(raw: unknown, fallback: Omit<Service, 'id'>): Service {
     const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -784,8 +801,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateService = async (id: string, service: Partial<Service>) => {
+    const safeId = id == null || String(id).trim() === '' ? null : String(id);
+    if (!safeId || safeId === 'undefined') {
+      toast.error('معرف الخدمة غير صالح');
+      return;
+    }
     try {
-      const updated = await serviceService.updateService(id, {
+      const updated = await serviceService.updateService(safeId, {
         name: service.name,
         category: service.category,
         price: service.price,
@@ -793,15 +815,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         image: service.image,
         active: service.active,
       });
-      const resolved = unwrapData<Service>(updated) ?? { ...services.find((s) => s.id === id), ...service };
+      const resolved = unwrapData<Service>(updated) ?? { ...services.find((s) => String(s.id) === safeId), ...service };
       if (resolved && typeof resolved === 'object') {
         setServices((prev) =>
-          prev.map((s) => (s.id === id ? { ...s, ...resolved } : s))
+          prev.map((s) => (String(s.id) === safeId ? { ...s, ...resolved } : s))
         );
       }
       addNotification({
         title: 'تحديث خدمة',
-        message: `تم تحديث خدمة "${service.name ?? id}" بنجاح`,
+        message: `تم تحديث خدمة "${service.name ?? safeId}" بنجاح`,
         time: 'الآن',
         read: false,
       });
@@ -814,10 +836,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const deleteService = async (id: string) => {
-    const service = services.find((s) => s.id === id);
+    const safeId = id == null || String(id).trim() === '' ? null : String(id);
+    if (!safeId || safeId === 'undefined') {
+      toast.error('معرف الخدمة غير صالح');
+      return;
+    }
+    const service = services.find((s) => String(s.id) === safeId);
     try {
-      await serviceService.deleteService(id);
-      setServices((prev) => prev.filter((s) => s.id !== id));
+      await serviceService.deleteService(safeId);
+      setServices((prev) => prev.filter((s) => String(s.id) !== safeId));
       addNotification({
         title: 'حذف خدمة',
         message: `تم حذف خدمة "${service?.name}" بنجاح`,

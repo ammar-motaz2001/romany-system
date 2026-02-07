@@ -12,14 +12,17 @@ export default function ServicesPage() {
   const [filter, setFilter] = useState('الكل');
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [editingService, setEditingService] = useState<any>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // Calculate sales count for each service
-  const servicesWithSales = services.map(service => {
-    const salesCount = sales.filter(sale => 
-      sale.service.includes(service.name)
-    ).length;
-    return { ...service, salesCount, active: service.active !== false };
-  });
+  // Calculate sales count for each service (only include services with valid id)
+  const servicesWithSales = services
+    .filter(service => service.id != null && String(service.id).trim() !== '' && String(service.id) !== 'undefined')
+    .map(service => {
+      const salesCount = sales.filter(sale =>
+        sale.service.includes(service.name)
+      ).length;
+      return { ...service, salesCount, active: service.active !== false };
+    });
 
   // Filter services based on search query and filter
   let filteredServices = servicesWithSales.filter(service =>
@@ -36,13 +39,21 @@ export default function ServicesPage() {
     filteredServices = filteredServices.sort((a, b) => (b.salesCount || 0) - (a.salesCount || 0)).slice(0, 5);
   }
 
-  const handleToggleActive = (id: string, currentActive: boolean) => {
-    updateService(id, { active: !currentActive });
+  const handleToggleActive = (id: string | undefined, currentActive: boolean) => {
+    const safeId = id != null && String(id).trim() !== '' ? String(id) : null;
+    if (!safeId || safeId === 'undefined') return;
+    updateService(safeId, { active: !currentActive });
   };
 
-  const handleDelete = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذه الخدمة؟')) {
-      deleteService(id);
+  const handleDelete = async (id: string | undefined) => {
+    const safeId = id != null && String(id).trim() !== '' ? String(id) : null;
+    if (!safeId || safeId === 'undefined') return;
+    if (!window.confirm('هل أنت متأكد من حذف هذه الخدمة؟')) return;
+    setDeletingId(safeId);
+    try {
+      await deleteService(safeId);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -157,12 +168,13 @@ export default function ServicesPage() {
                         variant="ghost"
                         size="sm"
                         className="text-red-600 hover:text-red-700 h-8 w-8 p-0"
+                        disabled={deletingId === String(service.id)}
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleDelete(service.id);
+                          handleDelete(String(service.id));
                         }}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {deletingId === String(service.id) ? '...' : <Trash2 className="w-4 h-4" />}
                       </Button>
                     </div>
                   </div>
@@ -232,9 +244,10 @@ export default function ServicesPage() {
                             variant="ghost"
                             size="sm"
                             className="text-red-600 hover:text-red-700"
-                            onClick={() => handleDelete(service.id)}
+                            disabled={deletingId === String(service.id)}
+                            onClick={() => handleDelete(String(service.id))}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            {deletingId === String(service.id) ? 'جاري الحذف...' : <Trash2 className="w-4 h-4" />}
                           </Button>
                         </div>
                       </td>
