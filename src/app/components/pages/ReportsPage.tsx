@@ -75,9 +75,13 @@ export default function ReportsPage() {
         count: filteredAttendance.length,
       };
     } else if (reportType === 'تقرير المخزون') {
-      const totalValue = inventory.reduce((sum, item) => sum + (item.quantity * item.price), 0);
-      const lowStock = inventory.filter(item => item.quantity <= item.minQuantity).length;
-      
+      const totalValue = inventory.reduce((sum, item) => sum + ((item.stock ?? item.quantity ?? 0) * item.price), 0);
+      const minThresh = (item: { stock?: number; quantity?: number; minStock?: number; minQuantity?: number }) =>
+        item.minStock ?? item.minQuantity ?? 0;
+      const lowStock = inventory.filter(item =>
+        (item.stock ?? item.quantity ?? 0) <= minThresh(item)
+      ).length;
+
       return {
         totalValue,
         lowStock,
@@ -168,12 +172,14 @@ export default function ReportsPage() {
           { header: 'الحد الأدنى', dataKey: 'minQuantity' },
         ];
 
+        const qty = (item: { stock?: number; quantity?: number }) => item.stock ?? item.quantity ?? 0;
+        const minQ = (item: { minStock?: number; minQuantity?: number }) => item.minStock ?? item.minQuantity ?? 0;
         data = inventory.map(item => ({
           name: item.name,
-          quantity: item.quantity.toString(),
-          price: `${item.price.toFixed(2)} ج.م`,
-          value: `${(item.quantity * item.price).toFixed(2)} ج.م`,
-          minQuantity: item.minQuantity.toString(),
+          quantity: String(qty(item)),
+          price: `${Number(item.price).toFixed(2)} ج.م`,
+          value: `${(qty(item) * Number(item.price)).toFixed(2)} ج.م`,
+          minQuantity: String(minQ(item)),
         }));
       } else if (reportType === 'تقرير العملاء') {
         title = 'تقرير العملاء';

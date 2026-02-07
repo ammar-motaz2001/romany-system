@@ -7,8 +7,10 @@ import Header from '@/app/components/Header';
 import { toast } from 'sonner';
 import supplierService, { Supplier, CreateSupplierDTO } from '@/services/supplier.service';
 import purchaseInvoiceService, { PurchaseInvoice, CreatePurchaseInvoiceDTO } from '@/services/purchaseInvoice.service';
+import { useApp } from '@/app/context/AppContext';
 
 export default function SuppliersPage() {
+  const { inventory, addInventoryItem, updateInventoryItem } = useApp();
   const [activeTab, setActiveTab] = useState<'suppliers' | 'invoices'>('suppliers');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSupplierDialog, setShowSupplierDialog] = useState(false);
@@ -440,6 +442,33 @@ export default function SuppliersPage() {
       } else {
         await purchaseInvoiceService.createInvoice(invoiceData);
         toast.success('تم إضافة الفاتورة بنجاح');
+
+        // Add/update items in inventory (إدارة المخزون)
+        for (const item of invoiceForm.items) {
+          const name = (item.itemName ?? '').trim();
+          if (!name || item.quantity <= 0) continue;
+          const existing = inventory.find(
+            (inv) => inv.name.toLowerCase() === name.toLowerCase()
+          );
+          if (existing) {
+            await updateInventoryItem(existing.id, {
+              name: existing.name,
+              category: existing.category,
+              stock: existing.stock + item.quantity,
+              price: item.unitPrice,
+              minStock: existing.minStock,
+              image: existing.image,
+            });
+          } else {
+            await addInventoryItem({
+              name,
+              category: 'مشتريات',
+              stock: item.quantity,
+              price: item.unitPrice,
+              minStock: 10,
+            });
+          }
+        }
       }
 
       setShowInvoiceDialog(false);
