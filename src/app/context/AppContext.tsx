@@ -917,8 +917,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast.success('تم إضافة العميل بنجاح');
       return newCustomer;
     } catch (error: unknown) {
-      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      toast.error(msg ?? 'حدث خطأ أثناء إضافة العميل');
+      const msg = String((error as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '');
+      const isAlreadyRegistered = /مسجل|already|exists|موجود|مُسَجّل|phone/i.test(msg);
+      if (!isAlreadyRegistered) {
+        toast.error(msg || 'حدث خطأ أثناء إضافة العميل');
+      }
       throw error;
     }
   };
@@ -1031,10 +1034,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.success('تم حذف الموعد بنجاح');
   };
 
+  // Normalize phone for comparison (trim, optional strip non-digits)
+  const normalizePhone = (phone: string) => String(phone ?? '').trim().replace(/\s/g, '');
+
   // Sales functions - integrated with API
   // Flow: المبيعات (POS) calls addSale → we push to context (sales) → الفواتير (Invoices) reads same sales → new invoice appears
   const addSale = async (sale: Omit<Sale, 'id'>) => {
-    let customerId = customers.find((c) => c.phone === sale.customerPhone)?.id;
+    const salePhone = normalizePhone(sale.customerPhone ?? '');
+    let customerId = customers.find((c) => normalizePhone(c.phone) === salePhone)?.id;
+
     if (!customerId && sale.customer && sale.customerPhone && sale.customer !== 'عميل نقدي') {
       try {
         const newCustomer = await addCustomer({
@@ -1043,10 +1051,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
           phone: sale.customerPhone,
         });
         customerId = newCustomer.id;
-      } catch (error) {
-        console.error('Error creating customer:', error);
+      } catch (error: unknown) {
+        const msg = String((error as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '');
+        const isAlreadyRegistered =
+          /مسجل|already|exists|موجود|مُسَجّل/i.test(msg) || msg.includes('phone');
+        if (isAlreadyRegistered) {
+          try {
+            const listRes = await customerService.getAll();
+            const list = unwrapList<Record<string, unknown>>(listRes);
+            const mapped = mapBackendCustomersToContext(list);
+            const existing = mapped.find((c) => normalizePhone(c.phone) === salePhone);
+            if (existing) {
+              customerId = existing.id;
+              setCustomers((prev) => {
+                const has = prev.some((c) => normalizePhone(c.phone) === salePhone);
+                return has ? prev : [...prev, existing];
+              });
+            }
+          } catch (fetchErr) {
+            console.error('Error fetching existing customer:', fetchErr);
+          }
+        } else {
+          toast.error(msg || 'حدث خطأ أثناء إضافة العميل');
+          throw error;
+        }
       }
     }
+
     try {
       const created = await saleService.createSale({
         customer: sale.customer,

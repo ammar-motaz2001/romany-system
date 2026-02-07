@@ -36,6 +36,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/app/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/app/components/ui/dialog';
 import { generateTablePDF, generateInvoicePDF } from '@/utils/pdfExportArabic';
 import { toast } from 'sonner';
 
@@ -82,14 +89,17 @@ export default function InvoicesPage() {
       result = result.filter(invoice => toDateOnly(invoice.date) === dateFilter);
     }
 
-    // Search filter (by customer name or invoice number)
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(invoice =>
-        invoice.customer?.toLowerCase().includes(query) ||
-        invoice.id?.toLowerCase().includes(query) ||
-        invoice.customerPhone?.includes(query)
-      );
+    // Search filter (by customer, id, phone, or service)
+    const query = searchQuery?.trim() ?? '';
+    if (query) {
+      const q = query.toLowerCase();
+      result = result.filter(invoice => {
+        const customer = (invoice.customer ?? (invoice as { customerName?: string }).customerName ?? '').toString().toLowerCase();
+        const idStr = String(invoice.id ?? '').toLowerCase();
+        const phone = (invoice.customerPhone ?? '').toString();
+        const service = (invoice.service ?? (invoice as { serviceName?: string }).serviceName ?? '').toString().toLowerCase();
+        return customer.includes(q) || idStr.includes(q) || phone.includes(q) || service.includes(q);
+      });
     }
 
     // Status filter (accept both Arabic and English)
@@ -119,7 +129,17 @@ export default function InvoicesPage() {
     return ['منتهي', 'مكتمل', 'completed'].includes(s);
   };
 
-  // Calculate statistics (cards use same data as table)
+  // All-time stats (real data from all sales) for cards
+  const allTimeStats = useMemo(() => {
+    return {
+      total: sales.length,
+      completed: sales.filter(inv => isInvoiceCompleted(inv)).length,
+      incomplete: sales.filter(inv => !isInvoiceCompleted(inv)).length,
+      totalRevenue: sales.reduce((sum, inv) => sum + Number(inv.amount ?? 0), 0),
+    };
+  }, [sales]);
+
+  // Filtered stats (current view) for subtitle
   const stats = useMemo(() => {
     return {
       total: filteredInvoices.length,
@@ -553,7 +573,7 @@ export default function InvoicesPage() {
           </div>
         </div>
 
-        {/* Statistics Cards */}
+        {/* Statistics Cards - real data (all-time from sales) */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="p-6 bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 border-2 border-purple-200 dark:border-purple-800">
             <div className="flex items-center justify-between">
@@ -561,7 +581,8 @@ export default function InvoicesPage() {
                 <p className="text-sm font-medium text-purple-600 dark:text-purple-400">
                   إجمالي الفواتير
                 </p>
-                <h3 className="text-3xl font-bold text-purple-700 dark:text-purple-300 mt-2">{stats.total}</h3>
+                <h3 className="text-3xl font-bold text-purple-700 dark:text-purple-300 mt-2">{allTimeStats.total}</h3>
+                <p className="text-xs text-purple-600/70 dark:text-purple-400/70 mt-1">في العرض الحالي: {stats.total}</p>
               </div>
               <FileText className="w-12 h-12 text-purple-300 dark:text-purple-700" />
             </div>
@@ -573,7 +594,8 @@ export default function InvoicesPage() {
                 <p className="text-sm font-medium text-green-600 dark:text-green-400">
                   مكتملة
                 </p>
-                <h3 className="text-3xl font-bold text-green-700 dark:text-green-300 mt-2">{stats.completed}</h3>
+                <h3 className="text-3xl font-bold text-green-700 dark:text-green-300 mt-2">{allTimeStats.completed}</h3>
+                <p className="text-xs text-green-600/70 dark:text-green-400/70 mt-1">في العرض الحالي: {stats.completed}</p>
               </div>
               <CheckCircle className="w-12 h-12 text-green-300 dark:text-green-700" />
             </div>
@@ -585,7 +607,8 @@ export default function InvoicesPage() {
                 <p className="text-sm font-medium text-orange-600 dark:text-orange-400">
                   غير مكتملة
                 </p>
-                <h3 className="text-3xl font-bold text-orange-700 dark:text-orange-300 mt-2">{stats.incomplete}</h3>
+                <h3 className="text-3xl font-bold text-orange-700 dark:text-orange-300 mt-2">{allTimeStats.incomplete}</h3>
+                <p className="text-xs text-orange-600/70 dark:text-orange-400/70 mt-1">في العرض الحالي: {stats.incomplete}</p>
               </div>
               <Clock className="w-12 h-12 text-orange-300 dark:text-orange-700" />
             </div>
@@ -598,8 +621,9 @@ export default function InvoicesPage() {
                   إجمالي الإيرادات
                 </p>
                 <h3 className="text-3xl font-bold text-blue-700 dark:text-blue-300 mt-2">
-                  {stats.totalRevenue.toFixed(0)} <span className="text-lg">ج.م</span>
+                  {allTimeStats.totalRevenue.toFixed(0)} <span className="text-lg">ج.م</span>
                 </h3>
+                <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1">في العرض الحالي: {stats.totalRevenue.toFixed(0)} ج.م</p>
               </div>
               <DollarSign className="w-12 h-12 text-blue-300 dark:text-blue-700" />
             </div>
@@ -704,6 +728,98 @@ export default function InvoicesPage() {
           </div>
         </Card>
 
+        {/* Preview dialog (Eye icon) */}
+        <Dialog open={showInvoiceDialog} onOpenChange={(open) => {
+          if (!open) {
+            setShowInvoiceDialog(false);
+            setSelectedInvoice(null);
+          }
+        }}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-purple-600" />
+                عرض الفاتورة {selectedInvoice?.id ?? ''}
+              </DialogTitle>
+            </DialogHeader>
+            {selectedInvoice && (
+              <div className="space-y-4 text-right">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">العميل</p>
+                    <p className="font-medium">{selectedInvoice.customer ?? (selectedInvoice as { customerName?: string }).customerName ?? 'عميل نقدي'}</p>
+                    {selectedInvoice.customerPhone && (
+                      <p className="text-sm text-gray-500">{selectedInvoice.customerPhone}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">التاريخ</p>
+                    <p className="font-medium">{selectedInvoice.date ? new Date(selectedInvoice.date).toLocaleDateString('ar-EG', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">طريقة الدفع</p>
+                    <p className="font-medium">{selectedInvoice.paymentMethod ?? 'نقدي'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">الحالة</p>
+                    <div className="mt-1">{getStatusBadge(selectedInvoice.status ?? '')}</div>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">الخدمة / الصنف</p>
+                  <p className="font-medium">{selectedInvoice.service ?? (selectedInvoice as { serviceName?: string }).serviceName ?? '-'}</p>
+                </div>
+                {selectedInvoice.items && selectedInvoice.items.length > 0 && (
+                  <div>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">تفاصيل الأصناف</p>
+                    <div className="border rounded-lg overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 dark:bg-gray-800">
+                          <tr>
+                            <th className="text-right py-2 px-3">الصنف</th>
+                            <th className="text-center py-2 px-3">الكمية</th>
+                            <th className="text-center py-2 px-3">السعر</th>
+                            <th className="text-center py-2 px-3">الإجمالي</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedInvoice.items.map((item: { name: string; quantity: number; price: number; customPrice?: number }, idx: number) => (
+                            <tr key={idx} className="border-t dark:border-gray-700">
+                              <td className="py-2 px-3">{item.name}</td>
+                              <td className="text-center py-2 px-3">{item.quantity}</td>
+                              <td className="text-center py-2 px-3">{(item.customPrice ?? item.price)?.toFixed(2)} ج.م</td>
+                              <td className="text-center py-2 px-3 font-medium">{(item.quantity * (item.customPrice ?? item.price)).toFixed(2)} ج.م</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                <div className="flex justify-between items-center pt-4 border-t dark:border-gray-700">
+                  <span className="text-gray-600 dark:text-gray-400">المبلغ الإجمالي</span>
+                  <span className="text-xl font-bold text-green-600">{(Number(selectedInvoice.amount ?? 0)).toFixed(2)} ج.م</span>
+                </div>
+                {selectedInvoice.notes && (
+                  <div className="pt-2">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">ملاحظات</p>
+                    <p className="text-sm">{selectedInvoice.notes}</p>
+                  </div>
+                )}
+                <DialogFooter className="pt-4 gap-2">
+                  <Button variant="outline" onClick={() => { setShowInvoiceDialog(false); setSelectedInvoice(null); }}>
+                    إغلاق
+                  </Button>
+                  <Button onClick={() => handlePrintInvoice(selectedInvoice)} className="gap-2">
+                    <Printer className="w-4 h-4" />
+                    طباعة
+                  </Button>
+                </DialogFooter>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
         {/* Invoices Table */}
         <Card className="p-6">
           <div className="overflow-x-auto">
@@ -753,7 +869,7 @@ export default function InvoicesPage() {
                         </div>
                       </TableCell>
                       <TableCell className="font-bold text-green-600">
-                        {invoice.amount.toFixed(2)} ج.م
+                        {Number(invoice.amount ?? 0).toFixed(2)} ج.م
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
