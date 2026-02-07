@@ -22,6 +22,7 @@ import { authService } from '@/services/auth.service';
 import { settingService } from '@/services/setting.service';
 import { supplierService } from '@/services/supplier.service';
 import { purchaseInvoiceService } from '@/services/purchaseInvoice.service';
+import { shiftService } from '@/services/shift.service';
 
 /** Unwrap API response: backend may return { data: T } or T */
 function unwrapList<T>(res: unknown): T[] {
@@ -369,21 +370,22 @@ interface AppContextType {
   
   // Suppliers
   suppliers: Supplier[];
-  addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
-  updateSupplier: (id: string, supplier: Partial<Supplier>) => void;
-  deleteSupplier: (id: string) => void;
+  addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<void>;
+  updateSupplier: (id: string, supplier: Partial<Supplier>) => Promise<void>;
+  deleteSupplier: (id: string) => Promise<void>;
   
   // Purchase Invoices
   purchaseInvoices: PurchaseInvoice[];
-  addPurchaseInvoice: (invoice: Omit<PurchaseInvoice, 'id'>) => void;
-  updatePurchaseInvoice: (id: string, invoice: Partial<PurchaseInvoice>) => void;
-  deletePurchaseInvoice: (id: string) => void;
+  addPurchaseInvoice: (invoice: Omit<PurchaseInvoice, 'id'>) => Promise<void>;
+  updatePurchaseInvoice: (id: string, invoice: Partial<PurchaseInvoice>) => Promise<void>;
+  deletePurchaseInvoice: (id: string) => Promise<void>;
   
   // Shifts
   shifts: Shift[];
-  addShift: (shift: Omit<Shift, 'id' | 'userId'>) => void;
-  updateShift: (id: string, shift: Partial<Shift>) => void;
-  closeShift: (id: string) => void;
+  fetchShifts: () => Promise<void>;
+  addShift: (shift: Omit<Shift, 'id' | 'userId'>) => Promise<void>;
+  updateShift: (id: string, shift: Partial<Shift>) => Promise<void>;
+  closeShift: (id: string) => Promise<void>;
   
   // Notifications
   notifications: Notification[];
@@ -475,6 +477,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attendanceRes,
         employeesRes,
         expensesRes,
+        suppliersRes,
+        purchaseInvoicesRes,
+        shiftsRes,
         settingsRes,
         usersRes,
       ] = await Promise.allSettled([
@@ -486,6 +491,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attendanceService.getAllAttendance(),
         employeeService.getAllEmployees(),
         expenseService.getAllExpenses(),
+        supplierService.getAllSuppliers(),
+        purchaseInvoiceService.getAllInvoices(),
+        shiftService.getAllShifts(),
         settingService.getSettings(),
         authService.getAllUsers(),
       ]);
@@ -512,7 +520,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       setInventory(
         inventoryRes.status === 'fulfilled'
-          ? unwrapList<InventoryItem>(inventoryRes.value)
+          ? mapBackendInventoryToContext(unwrapList(inventoryRes.value))
           : []
       );
       setAttendanceRecords(
@@ -522,12 +530,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       setEmployees(
         employeesRes.status === 'fulfilled'
-          ? unwrapList<Employee>(employeesRes.value)
+          ? mapBackendEmployeesToContext(unwrapList(employeesRes.value))
           : []
       );
       setExpenses(
         expensesRes.status === 'fulfilled'
-          ? unwrapList<Expense>(expensesRes.value)
+          ? mapBackendExpensesToContext(unwrapList(expensesRes.value))
+          : []
+      );
+      setSuppliers(
+        suppliersRes.status === 'fulfilled'
+          ? mapBackendSuppliersToContext(unwrapList(suppliersRes.value))
+          : []
+      );
+      setPurchaseInvoices(
+        purchaseInvoicesRes.status === 'fulfilled'
+          ? mapBackendPurchaseInvoicesToContext(unwrapList(purchaseInvoicesRes.value))
+          : []
+      );
+      setShifts(
+        shiftsRes.status === 'fulfilled'
+          ? mapBackendShiftsToContext(unwrapList(shiftsRes.value))
           : []
       );
       if (settingsRes.status === 'fulfilled' && settingsRes.value) {
@@ -557,18 +580,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAttendanceRecords([]);
       setEmployees([]);
       setExpenses([]);
+      setSuppliers([]);
+      setPurchaseInvoices([]);
+      setShifts([]);
       toast.error('فشل تحميل البيانات من الخادم');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Load data only when authenticated to avoid 401 → redirect → remount → infinite loop
+  // Fetch shifts from GET /api/shifts (used by الورديات page and loadAllData)
+  const fetchShifts = useCallback(async () => {
+    if (!authService.isAuthenticated()) return;
+    try {
+      const res = await shiftService.getAllShifts();
+      const list = unwrapList(res);
+      setShifts(mapBackendShiftsToContext(list));
+    } catch (error) {
+      console.error('Error fetching shifts:', error);
+    }
+  }, []);
+
+  // Load data only when authenticated (shifts come from API in loadAllData); fallback to localStorage when not authenticated
   useEffect(() => {
-    loadShiftsFromLocalStorage();
     if (authService.isAuthenticated()) {
       loadAllData();
     } else {
+      loadShiftsFromLocalStorage();
       setLoading(false);
     }
   }, [loadAllData]);
@@ -676,6 +714,197 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }
 
+  /** Normalize backend inventory shape (stock/quantity, minStock/minQuantity, id/_id) */
+  function mapBackendInventoryToContext(list: unknown[]): InventoryItem[] {
+    return list.map((a) => {
+      const r = a as Record<string, unknown>;
+      return {
+        id: String(r.id ?? r._id ?? ''),
+        name: String(r.name ?? ''),
+        category: String(r.category ?? ''),
+        stock: Number(r.stock ?? r.quantity ?? 0),
+        price: Number(r.price ?? 0),
+        minStock: r.minStock != null ? Number(r.minStock) : r.minQuantity != null ? Number(r.minQuantity) : undefined,
+        image: r.image as string | undefined,
+      };
+    });
+  }
+
+  /** Normalize backend supplier shape (id/_id) */
+  function mapBackendSuppliersToContext(list: unknown[]): Supplier[] {
+    return list.map((a) => {
+      const r = a as Record<string, unknown>;
+      return {
+        id: String(r.id ?? r._id ?? ''),
+        name: String(r.name ?? ''),
+        phone: String(r.phone ?? ''),
+        address: (r.address as string) ?? '',
+        balance: Number(r.balance ?? 0),
+        status: (r.status as 'نشط' | 'موقوف') ?? 'نشط',
+        notes: (r.notes as string) ?? undefined,
+      };
+    });
+  }
+
+  /** Normalize backend purchase invoice shape (id/_id, supplierId/supplier, items) */
+  function mapBackendPurchaseInvoicesToContext(list: unknown[]): PurchaseInvoice[] {
+    return list.map((a) => {
+      const r = a as Record<string, unknown>;
+      const itemsRaw = (r.items as Array<Record<string, unknown>>) ?? [];
+      const items = itemsRaw.map((it) => ({
+        name: String(it.itemName ?? it.name ?? ''),
+        quantity: Number(it.quantity ?? 0),
+        price: Number(it.unitPrice ?? it.price ?? 0),
+      }));
+      const statusRaw = String(r.status ?? '');
+      const status: PurchaseInvoice['status'] =
+        statusRaw === 'مدفوعة' ? 'مدفوعة'
+        : statusRaw === 'جزئية' || statusRaw === 'جزئي' ? 'جزئي'
+        : 'غير مدفوعة';
+      return {
+        id: String(r.id ?? r._id ?? ''),
+        supplierId: String(r.supplierId ?? r.supplier ?? ''),
+        supplierName: String(r.supplierName ?? ''),
+        date: String(r.date ?? ''),
+        items,
+        totalAmount: Number(r.totalAmount ?? 0),
+        paidAmount: Number(r.paidAmount ?? 0),
+        paymentMethod: (r.paymentMethod as PurchaseInvoice['paymentMethod']) ?? undefined,
+        status,
+        notes: (r.notes as string) ?? undefined,
+      };
+    });
+  }
+
+  /** Normalize backend shift shape (id/_id, date, startTime, endTime, userId, status) */
+  function mapBackendShiftsToContext(list: unknown[]): Shift[] {
+    return list.map((a) => {
+      const r = a as Record<string, unknown>;
+      const dateRaw = r.date ?? r.startTime ?? r.createdAt;
+      const dateStr =
+        typeof dateRaw === 'string'
+          ? dateRaw.includes('T')
+            ? dateRaw.split('T')[0]
+            : dateRaw
+          : '';
+      const userObj = r.user && typeof r.user === 'object' ? (r.user as Record<string, unknown>) : null;
+      const cashierFromUser = userObj
+        ? String(
+            (userObj.firstName && userObj.lastName
+              ? `${userObj.firstName} ${userObj.lastName}`.trim()
+              : userObj.name ?? userObj.username ?? '') ?? ''
+          ).trim()
+        : '';
+      const cashierRaw = String(r.cashier ?? cashierFromUser ?? '').trim();
+      const cashier =
+        !cashierRaw || /undefined/i.test(cashierRaw) ? 'كاشير' : cashierRaw;
+
+      const salesDetailsRaw = r.salesDetails ?? r.sales_details;
+      const sd =
+        salesDetailsRaw && typeof salesDetailsRaw === 'object'
+          ? (salesDetailsRaw as Record<string, unknown>)
+          : null;
+      const salesDetails = sd
+        ? {
+            cash: Number(sd.cash ?? sd.Cash ?? 0),
+            card: Number(sd.card ?? sd.Card ?? 0),
+            instapay: Number(sd.instapay ?? sd.InstaPay ?? sd.instaPay ?? 0),
+          }
+        : undefined;
+
+      const userId =
+        r.userId ??
+        (userObj ? (userObj.id ?? userObj._id) : null) ??
+        r.user;
+      return {
+        id: String(r.id ?? r._id ?? ''),
+        userId: String(userId ?? ''),
+        startTime: String(r.startTime ?? r.start ?? ''),
+        endTime: String(r.endTime ?? r.end ?? ''),
+        startingCash: Number(
+          r.startingCash ?? r.openingBalance ?? r.openingCash ?? 0
+        ),
+        totalSales: Number(r.totalSales ?? r.total_sales ?? 0),
+        totalExpenses: Number(r.totalExpenses ?? r.total_expenses ?? 0),
+        finalCash: Number(r.finalCash ?? r.closingCash ?? r.closing_cash ?? 0),
+        status: (r.status === 'closed' ? 'closed' : 'open') as 'open' | 'closed',
+        date:
+          dateStr ||
+          (typeof r.startTime === 'string' ? r.startTime.split('T')[0] : ''),
+        cashier,
+        salesDetails: salesDetails
+          ? {
+              cash: salesDetails.cash,
+              card: salesDetails.card,
+              instapay: salesDetails.instapay,
+            }
+          : { cash: 0, card: 0, instapay: 0 },
+      };
+    });
+  }
+
+  /** Normalize backend expense shape (id/_id, date, amount, paymentMethod, etc.) */
+  function mapBackendExpensesToContext(list: unknown[]): Expense[] {
+    return list.map((a) => mapBackendExpenseToContext(a));
+  }
+
+  function mapBackendExpenseToContext(raw: unknown, fallback?: Partial<Expense>): Expense {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const dateRaw = r.date ?? r.expenseDate ?? r.createdAt ?? fallback?.date;
+    const dateStr =
+      typeof dateRaw === 'string'
+        ? dateRaw.includes('T')
+          ? dateRaw.split('T')[0]
+          : dateRaw
+        : '';
+    return {
+      id: String(r.id ?? r._id ?? fallback?.id ?? ''),
+      date: dateStr || (fallback?.date ?? ''),
+      description: String(r.description ?? fallback?.description ?? ''),
+      amount: Number(r.amount ?? fallback?.amount ?? 0),
+      paymentMethod: String(r.paymentMethod ?? r.payment_method ?? fallback?.paymentMethod ?? ''),
+      notes: (r.notes ?? fallback?.notes) as string | undefined,
+      category: (r.category ?? fallback?.category) as string | undefined,
+    };
+  }
+
+  /** Normalize backend employee shape (id/_id, hireDate/startDate, baseSalary/salary, status) */
+  function mapBackendEmployeesToContext(list: unknown[]): Employee[] {
+    return list.map((a) => {
+      const r = a as Record<string, unknown>;
+      const statusRaw = String(r.status ?? '');
+      const statusMap: Record<string, 'نشط' | 'موقوف'> = {
+        active: 'نشط',
+        terminated: 'موقوف',
+        نشط: 'نشط',
+        موقوف: 'موقوف',
+      };
+      const status = statusMap[statusRaw.toLowerCase()] ?? 'نشط';
+      const hireDateRaw = r.hireDate ?? r.startDate ?? r.start_date ?? '';
+      const hireDate =
+        typeof hireDateRaw === 'string' && hireDateRaw.includes('T')
+          ? hireDateRaw.split('T')[0]
+          : String(hireDateRaw ?? '');
+      return {
+        id: String(r.id ?? r._id ?? ''),
+        name: String(r.name ?? ''),
+        phone: String(r.phone ?? ''),
+        position: String(r.position ?? ''),
+        hireDate: hireDate || new Date().toISOString().split('T')[0],
+        salaryType: (r.salaryType as 'شهري' | 'يومي' | 'بالساعة') ?? 'شهري',
+        baseSalary: Number(r.baseSalary ?? r.salary ?? 0),
+        workDays: Number(r.workDays ?? 22),
+        shiftHours: Number(r.shiftHours ?? 8),
+        hourlyRate: r.hourlyRate != null ? Number(r.hourlyRate) : undefined,
+        commission: Number(r.commission ?? 0),
+        status,
+        latePenaltyPerMinute: r.latePenaltyPerMinute != null ? Number(r.latePenaltyPerMinute) : undefined,
+        absencePenaltyPerDay: r.absencePenaltyPerDay != null ? Number(r.absencePenaltyPerDay) : undefined,
+        customDeductions: r.customDeductions != null ? Number(r.customDeductions) : undefined,
+      };
+    });
+  }
+
   /** Normalize backend attendance shape (date, status present/حاضر) */
   function mapBackendAttendanceToContext(list: unknown[]): AttendanceRecord[] {
     return list.map((a) => {
@@ -688,7 +917,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : dateRaw
           : String(dateRaw ?? '');
       return {
-        id: String(r.id ?? ''),
+        id: String(r.id ?? r._id ?? ''),
         employeeId: String(r.employeeId ?? ''),
         employeeName: String(r.employeeName ?? r.employee ?? r.name ?? ''),
         name: String(r.name ?? r.employeeName ?? ''),
@@ -1250,9 +1479,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         minStock: item.minStock,
         image: item.image,
       });
-      const newItem = unwrapData<InventoryItem>(created) ?? (created as InventoryItem);
-      if (newItem && typeof newItem === 'object' && 'id' in newItem) {
-        setInventory((prev) => [...prev, newItem as InventoryItem]);
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const mapped = mapBackendInventoryToContext([raw])[0];
+      if (mapped && mapped.id) {
+        setInventory((prev) => [...prev, mapped]);
       }
       addNotification({
         title: 'منتج جديد في المخزون',
@@ -1324,17 +1554,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // The backend will handle this automatically when a sale is created
   };
 
-  // Attendance functions - Frontend Only
+  // Attendance functions - add via API (createManualAttendance), update/delete local (no API)
   const addAttendanceRecord = async (record: Omit<AttendanceRecord, 'id'>) => {
+    const dateStr =
+      typeof record.date === 'string' && record.date.includes('T')
+        ? record.date.split('T')[0]
+        : (record.date ?? '');
     try {
-      // Frontend-only mode: save to state
-      const newRecord: AttendanceRecord = {
-        ...record,
-        id: Date.now().toString(),
-      };
-
-      setAttendanceRecords([...attendanceRecords, newRecord]);
-      
+      const created = await attendanceService.createManualAttendance({
+        employeeId: record.employeeId,
+        employeeName: record.employeeName ?? record.name,
+        position: record.position,
+        checkIn: record.checkIn,
+        checkOut: record.checkOut ?? '',
+        date: dateStr,
+        advance: record.advance,
+        notes: record.notes,
+      });
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const newRecord = mapBackendAttendanceToContext([raw])[0];
+      if (newRecord && newRecord.id) {
+        setAttendanceRecords((prev) => [...prev, newRecord]);
+      }
       addNotification({
         title: 'تسجيل حضور',
         message: `تم تسجيل حضور "${record.name}"`,
@@ -1342,37 +1583,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
         read: false,
       });
       toast.success('تم تسجيل الحضور بنجاح');
-    } catch (error: any) {
-      console.error('Error adding attendance record:', error);
-      toast.error(error.message || 'حدث خطأ أثناء تسجيل الحضور');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تسجيل الحضور');
       throw error;
     }
   };
 
   const updateAttendanceRecord = async (id: string, record: Partial<AttendanceRecord>) => {
-    try {
-      // Frontend-only mode: update in state
-      setAttendanceRecords(
-        attendanceRecords.map((r) => (r.id === id ? { ...r, ...record } : r))
-      );
-      toast.success('تم تحديث سجل الحضور بنجاح');
-    } catch (error: any) {
-      console.error('Error updating attendance record:', error);
-      toast.error(error.message || 'حدث خطأ أثناء تحديث سجل الحضور');
-      throw error;
-    }
+    setAttendanceRecords((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...record } : r))
+    );
+    toast.success('تم تحديث سجل الحضور بنجاح');
   };
 
   const deleteAttendanceRecord = (id: string) => {
     const record = attendanceRecords.find((r) => r.id === id);
-    setAttendanceRecords(attendanceRecords.filter((r) => r.id !== id));
+    setAttendanceRecords((prev) => prev.filter((r) => r.id !== id));
     addNotification({
       title: 'حذف سجل حضور',
       message: `تم حذف سجل حضور "${record?.name}"`,
       time: 'الآن',
       read: false,
     });
-    toast.success('ت حذف سجل الحضور بنجاح');
+    toast.success('تم حذف سجل الحضور بنجاح');
   };
 
   // Specialists functions (Local only - no backend yet)
@@ -1398,57 +1632,79 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.success('تم تحديث الأخصائية بنجاح');
   };
 
-  // Employees functions - Frontend Only
+  // Employees functions - integrated with API
   const addEmployee = async (employee: Omit<Employee, 'id'>) => {
     try {
-      // Frontend-only mode: save to state
-      const newEmployee: Employee = {
-        ...employee,
-        id: Date.now().toString(),
-      };
-
-      setEmployees([...employees, newEmployee]);
-      
+      const created = await employeeService.createEmployee({
+        name: employee.name,
+        position: employee.position,
+        phone: employee.phone,
+        salary: employee.baseSalary,
+        commission: employee.commission,
+        startDate: employee.hireDate,
+      });
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const mapped = mapBackendEmployeesToContext([raw])[0];
+      if (mapped && mapped.id) {
+        setEmployees((prev) => [...prev, mapped]);
+      }
       addNotification({
         title: 'موظف جديد',
         message: `تم إضافة موظف جديد "${employee.name}"`,
         time: 'الآن',
         read: false,
       });
-      toast.success('تم إضافة المظف بنجاح');
-    } catch (error: any) {
-      console.error('Error adding employee:', error);
-      toast.error(error.message || 'حدث خطأ أثناء إضافة الموظف');
+      toast.success('تم إضافة الموظف بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة الموظف');
       throw error;
     }
   };
 
   const updateEmployee = async (id: string, employee: Partial<Employee>) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الموظف غير صالح');
+      return;
+    }
     try {
-      // Frontend-only mode: update in state
-      setEmployees(
-        employees.map((e) => (e.id === id ? { ...e, ...employee } : e))
+      const payload: Record<string, unknown> = {};
+      if (employee.name != null) payload.name = employee.name;
+      if (employee.position != null) payload.position = employee.position;
+      if (employee.phone != null) payload.phone = employee.phone;
+      if (employee.baseSalary != null) payload.salary = employee.baseSalary;
+      if (employee.commission != null) payload.commission = employee.commission;
+      if (employee.hireDate != null) payload.startDate = employee.hireDate;
+
+      await employeeService.updateEmployee(normalizedId, payload);
+      setEmployees((prev) =>
+        prev.map((e) => (e.id === normalizedId ? { ...e, ...employee } : e))
       );
-      
       addNotification({
         title: 'تحديث موظف',
-        message: `تم تحديث بيانات الموظف`,
+        message: 'تم تحديث بيانات الموظف',
         time: 'الآن',
         read: false,
       });
       toast.success('تم تحديث الموظف بنجاح');
-    } catch (error: any) {
-      console.error('Error updating employee:', error);
-      toast.error(error.message || 'حدث خطأ أثناء تحديث الموظف');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث الموظف');
       throw error;
     }
   };
 
   const deleteEmployee = async (id: string) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الموظف غير صالح');
+      return;
+    }
     try {
-      const employee = employees.find((e) => e.id === id);
-      setEmployees(employees.filter((e) => e.id !== id));
-      
+      const employee = employees.find((e) => e.id === normalizedId);
+      await employeeService.deleteEmployee(normalizedId);
+      setEmployees((prev) => prev.filter((e) => e.id !== normalizedId));
       addNotification({
         title: 'حذف موظف',
         message: `تم حذف الموظف "${employee?.name}"`,
@@ -1456,9 +1712,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         read: false,
       });
       toast.success('تم حذف الموظف بنجاح');
-    } catch (error: any) {
-      console.error('Error deleting employee:', error);
-      toast.error(error.message || 'حدث خطأ أثناء حذف الموظف');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء حذف الموظف');
       throw error;
     }
   };
@@ -1498,17 +1754,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toast.success('تم حذف المكافأة بنجاح');
   };
 
-  // Expenses functions - Frontend Only
+  // Expenses functions - integrated with API
   const addExpense = async (expense: Omit<Expense, 'id'>) => {
+    const dateStr =
+      typeof expense.date === 'string' && expense.date.includes('T')
+        ? expense.date.split('T')[0]
+        : (expense.date ?? '');
     try {
-      // Frontend-only mode: save to state
-      const newExpense: Expense = {
-        ...expense,
-        id: Date.now().toString(),
-      };
-
-      setExpenses([...expenses, newExpense]);
-      
+      const created = await expenseService.createExpense({
+        description: expense.description,
+        category: expense.category ?? '',
+        amount: expense.amount,
+        date: dateStr,
+        paymentMethod: expense.paymentMethod,
+        notes: expense.notes,
+      });
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const newExpense = mapBackendExpenseToContext(raw, expense);
+      setExpenses((prev) => [...prev, newExpense]);
       addNotification({
         title: 'مصروف جديد',
         message: `تم إضافة مصروف بقيمة ${expense.amount} ج.م`,
@@ -1516,185 +1779,386 @@ export function AppProvider({ children }: { children: ReactNode }) {
         read: false,
       });
       toast.success('تم إضافة المصروف بنجاح');
-    } catch (error: any) {
-      console.error('Error adding expense:', error);
-      toast.error(error.message || 'حدث خطأ أثناء إضافة المصروف');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة المصروف');
       throw error;
     }
   };
 
   const updateExpense = async (id: string, expense: Partial<Expense>) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف المصروف غير صالح');
+      return;
+    }
     try {
-      // Frontend-only mode: update in state
-      setExpenses(
-        expenses.map((e) => (e.id === id ? { ...e, ...expense } : e))
+      const payload: Record<string, unknown> = {};
+      if (expense.description != null) payload.description = expense.description;
+      if (expense.category != null) payload.category = expense.category;
+      if (expense.amount != null) payload.amount = expense.amount;
+      if (expense.date != null) {
+        payload.date =
+          typeof expense.date === 'string' && expense.date.includes('T')
+            ? expense.date.split('T')[0]
+            : expense.date;
+      }
+      if (expense.paymentMethod != null) payload.paymentMethod = expense.paymentMethod;
+      if (expense.notes != null) payload.notes = expense.notes;
+
+      await expenseService.updateExpense(normalizedId, payload);
+      setExpenses((prev) =>
+        prev.map((e) => (e.id === normalizedId ? { ...e, ...expense } : e))
       );
       toast.success('تم تحديث المصروف بنجاح');
-    } catch (error: any) {
-      console.error('Error updating expense:', error);
-      toast.error(error.message || 'حدث خطأ أثناء تحديث المصروف');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث المصروف');
       throw error;
     }
   };
 
   const deleteExpense = async (id: string) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف المصروف غير صالح');
+      return;
+    }
     try {
-      const expense = expenses.find((e) => e.id === id);
-      setExpenses(expenses.filter((e) => e.id !== id));
-      
+      const expense = expenses.find((e) => e.id === normalizedId);
+      await expenseService.deleteExpense(normalizedId);
+      setExpenses((prev) => prev.filter((e) => e.id !== normalizedId));
       addNotification({
         title: 'حذف مصروف',
-        message: `تم حذف مصروف بقيمة ${expense?.amount} ج.م`,
+        message: `تم حذف مصروف بقيمة ${expense?.amount ?? 0} ج.م`,
         time: 'الآن',
         read: false,
       });
       toast.success('تم حذف المصروف بنجاح');
-    } catch (error: any) {
-      console.error('Error deleting expense:', error);
-      toast.error(error.message || 'حدث خطأ أثناء حذف المصروف');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء حذف المصروف');
       throw error;
     }
   };
 
-  // Suppliers functions - Frontend Only
-  const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
-    const newSupplier = {
-      ...supplier,
-      id: Date.now().toString(),
-    };
-    setSuppliers([...suppliers, newSupplier]);
-    addNotification({
-      title: 'مورد جديد',
-      message: `تم إضافة مورد جديد "${supplier.name}"`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم إضافة المورد بنجاح');
-  };
-
-  const updateSupplier = (id: string, supplier: Partial<Supplier>) => {
-    setSuppliers(
-      suppliers.map((s) => (s.id === id ? { ...s, ...supplier } : s))
-    );
-    toast.success('تم تحديث المورد بنجاح');
-  };
-
-  const deleteSupplier = (id: string) => {
-    const supplier = suppliers.find((s) => s.id === id);
-    setSuppliers(suppliers.filter((s) => s.id !== id));
-    addNotification({
-      title: 'حذف مورد',
-      message: `تم حذف المورد "${supplier?.name}"`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم حذف المورد بنجاح');
-  };
-
-  // Purchase Invoices functions - Frontend Only
-  const addPurchaseInvoice = (invoice: Omit<PurchaseInvoice, 'id'>) => {
-    const newInvoice = {
-      ...invoice,
-      id: Date.now().toString(),
-    };
-    setPurchaseInvoices([...purchaseInvoices, newInvoice]);
-    
-    // Add purchased items to inventory
-    if (invoice.items && invoice.items.length > 0) {
-      const updatedInventory = [...inventory];
-      
-      invoice.items.forEach((item: any) => {
-        // Check if product already exists in inventory
-        const existingProductIndex = updatedInventory.findIndex(
-          (inv) => inv.name.toLowerCase() === item.name.toLowerCase()
-        );
-        
-        if (existingProductIndex !== -1) {
-          // Product exists, increase quantity
-          updatedInventory[existingProductIndex] = {
-            ...updatedInventory[existingProductIndex],
-            stock: updatedInventory[existingProductIndex].stock + item.quantity,
-            // Update price if different
-            price: item.price,
-          };
-        } else {
-          // Product doesn't exist, add new product
-          const newProduct: InventoryItem = {
-            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-            name: item.name,
-            stock: item.quantity,
-            price: item.price,
-            category: 'مشتريات', // Default category for purchased items
-            minStock: 10, // Default minimum quantity
-          };
-          updatedInventory.push(newProduct);
-        }
+  // Suppliers functions - integrated with API
+  const addSupplier = async (supplier: Omit<Supplier, 'id'>) => {
+    try {
+      const created = await supplierService.createSupplier({
+        name: supplier.name,
+        phone: supplier.phone,
+        address: supplier.address,
+        status: supplier.status,
+        notes: supplier.notes,
       });
-
-      setInventory(updatedInventory);
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const mapped = mapBackendSuppliersToContext([raw])[0];
+      if (mapped && mapped.id) {
+        setSuppliers((prev) => [...prev, mapped]);
+      }
+      addNotification({
+        title: 'مورد جديد',
+        message: `تم إضافة مورد جديد "${supplier.name}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم إضافة المورد بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة المورد');
+      throw error;
     }
-
-    addNotification({
-      title: 'فاتورة شراء جديدة',
-      message: `تم إضافة فاتورة شراء جديدة من "${invoice.supplierName}" وإضافة المنتجات للمخزون`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم إضافة فاتورة الشراء والمنتجات للمخزون بنجاح');
   };
 
-  const updatePurchaseInvoice = (id: string, invoice: Partial<PurchaseInvoice>) => {
-    setPurchaseInvoices(
-      purchaseInvoices.map((i) => (i.id === id ? { ...i, ...invoice } : i))
-    );
-    toast.success('تم تحديث فاتورة الشراء بنجاح');
+  const updateSupplier = async (id: string, supplier: Partial<Supplier>) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف المورد غير صالح');
+      return;
+    }
+    try {
+      const payload: Record<string, unknown> = {};
+      if (supplier.name != null) payload.name = supplier.name;
+      if (supplier.phone != null) payload.phone = supplier.phone;
+      if (supplier.address != null) payload.address = supplier.address;
+      if (supplier.status != null) payload.status = supplier.status;
+      if (supplier.notes != null) payload.notes = supplier.notes;
+
+      await supplierService.updateSupplier(normalizedId, payload);
+      setSuppliers((prev) =>
+        prev.map((s) => (s.id === normalizedId ? { ...s, ...supplier } : s))
+      );
+      toast.success('تم تحديث المورد بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث المورد');
+      throw error;
+    }
   };
 
-  const deletePurchaseInvoice = (id: string) => {
-    const invoice = purchaseInvoices.find((i) => i.id === id);
-    setPurchaseInvoices(purchaseInvoices.filter((i) => i.id !== id));
-    addNotification({
-      title: 'حذف فاتورة شراء',
-      message: `تم حذف فاتورة الشراء من "${invoice?.supplierName}"`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم حذف فاتورة الشراء بنجاح');
+  const deleteSupplier = async (id: string) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف المورد غير صالح');
+      return;
+    }
+    try {
+      const supplier = suppliers.find((s) => s.id === normalizedId);
+      await supplierService.deleteSupplier(normalizedId);
+      setSuppliers((prev) => prev.filter((s) => s.id !== normalizedId));
+      addNotification({
+        title: 'حذف مورد',
+        message: `تم حذف المورد "${supplier?.name}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم حذف المورد بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء حذف المورد');
+      throw error;
+    }
   };
 
-  // Shifts functions - User-specific shifts with localStorage
-  const addShift = (shift: Omit<Shift, 'id' | 'userId'>) => {
+  // Purchase Invoices functions - integrated with API
+  const addPurchaseInvoice = async (invoice: Omit<PurchaseInvoice, 'id'>) => {
+    try {
+      const created = await purchaseInvoiceService.createInvoice({
+        supplier: invoice.supplierId,
+        date: invoice.date,
+        items: invoice.items.map((i) => ({
+          itemName: i.name,
+          quantity: i.quantity,
+          unitPrice: i.price,
+        })),
+        paidAmount: invoice.paidAmount,
+        paymentMethod: invoice.paymentMethod,
+        notes: invoice.notes,
+      });
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const mapped = mapBackendPurchaseInvoicesToContext([raw])[0];
+      if (mapped && mapped.id) {
+        setPurchaseInvoices((prev) => [...prev, mapped]);
+      }
+      if (invoice.items && invoice.items.length > 0) {
+        setInventory((prev) => {
+          const updated = [...prev];
+          invoice.items.forEach((item: { name: string; quantity: number; price: number }) => {
+            const idx = updated.findIndex(
+              (inv) => inv.name.toLowerCase() === item.name.toLowerCase()
+            );
+            if (idx !== -1) {
+              updated[idx] = {
+                ...updated[idx],
+                stock: updated[idx].stock + item.quantity,
+                price: item.price,
+              };
+            } else {
+              updated.push({
+                id: String(Date.now() + Math.random().toString(36).slice(2, 9)),
+                name: item.name,
+                stock: item.quantity,
+                price: item.price,
+                category: 'مشتريات',
+                minStock: 10,
+              });
+            }
+          });
+          return updated;
+        });
+      }
+      addNotification({
+        title: 'فاتورة شراء جديدة',
+        message: `تم إضافة فاتورة شراء جديدة من "${invoice.supplierName}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم إضافة فاتورة الشراء بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة فاتورة الشراء');
+      throw error;
+    }
+  };
+
+  const updatePurchaseInvoice = async (id: string, invoice: Partial<PurchaseInvoice>) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الفاتورة غير صالح');
+      return;
+    }
+    try {
+      const payload: Record<string, unknown> = {};
+      if (invoice.supplierId != null) payload.supplier = invoice.supplierId;
+      if (invoice.date != null) payload.date = invoice.date;
+      if (invoice.items != null) {
+        payload.items = invoice.items.map((i) => ({
+          itemName: i.name,
+          quantity: i.quantity,
+          unitPrice: i.price,
+        }));
+      }
+      if (invoice.paidAmount != null) payload.paidAmount = invoice.paidAmount;
+      if (invoice.paymentMethod != null) payload.paymentMethod = invoice.paymentMethod;
+      if (invoice.notes != null) payload.notes = invoice.notes;
+
+      await purchaseInvoiceService.updateInvoice(normalizedId, payload);
+      setPurchaseInvoices((prev) =>
+        prev.map((i) => (i.id === normalizedId ? { ...i, ...invoice } : i))
+      );
+      toast.success('تم تحديث فاتورة الشراء بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث فاتورة الشراء');
+      throw error;
+    }
+  };
+
+  const deletePurchaseInvoice = async (id: string) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الفاتورة غير صالح');
+      return;
+    }
+    try {
+      const invoice = purchaseInvoices.find((i) => i.id === normalizedId);
+      await purchaseInvoiceService.deleteInvoice(normalizedId);
+      setPurchaseInvoices((prev) => prev.filter((i) => i.id !== normalizedId));
+      addNotification({
+        title: 'حذف فاتورة شراء',
+        message: `تم حذف فاتورة الشراء من "${invoice?.supplierName}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم حذف فاتورة الشراء بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء حذف فاتورة الشراء');
+      throw error;
+    }
+  };
+
+  // Shifts functions - integrated with API (same data on المبيعات and الورديات)
+  const addShift = async (shift: Omit<Shift, 'id' | 'userId'>) => {
     if (!currentUser) {
       toast.error('يجب تسجيل الدخول أولاً');
       return;
     }
-
-    const newShift: Shift = {
-      ...shift,
-      id: Date.now().toString(),
-      userId: currentUser.id, // Assign to current user
-    };
-
-    const updatedShifts = [...shifts, newShift];
-    setShifts(updatedShifts);
-    localStorage.setItem('shifts', JSON.stringify(updatedShifts));
-    toast.success('تم فتح الوردية بنجاح');
+    try {
+      const created = await shiftService.createShift({
+        userId: currentUser.id,
+        startTime: shift.startTime,
+        endTime: shift.endTime ?? '',
+        startingCash: shift.startingCash,
+        totalSales: shift.totalSales ?? 0,
+        totalExpenses: shift.totalExpenses ?? 0,
+        finalCash: shift.finalCash ?? 0,
+        status: shift.status,
+        date: shift.date,
+        cashier: shift.cashier,
+        salesDetails: shift.salesDetails,
+      });
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const newShift = raw && typeof raw === 'object'
+        ? mapBackendShiftsToContext([raw])[0]
+        : null;
+      const shiftToAdd: Shift = newShift
+        ? {
+            ...newShift,
+            id: newShift.id || String(Date.now()),
+            userId: String(newShift.userId || currentUser.id),
+            cashier:
+              (newShift.cashier && !/undefined/i.test(String(newShift.cashier).trim()))
+                ? String(newShift.cashier).trim()
+                : shift.cashier || 'كاشير',
+            totalSales: newShift.totalSales ?? shift.totalSales ?? 0,
+            totalExpenses: newShift.totalExpenses ?? shift.totalExpenses ?? 0,
+            salesDetails:
+              newShift.salesDetails &&
+              (newShift.salesDetails.cash ||
+                newShift.salesDetails.card ||
+                newShift.salesDetails.instapay)
+                ? newShift.salesDetails
+                : shift.salesDetails ?? { cash: 0, card: 0, instapay: 0 },
+          }
+        : {
+            id: String(
+              (raw && typeof raw === 'object'
+                ? (raw as Record<string, unknown>).id ?? (raw as Record<string, unknown>)._id
+                : null) ?? Date.now()
+            ),
+            userId: String(currentUser.id),
+            startTime: shift.startTime,
+            endTime: shift.endTime ?? '',
+            startingCash: shift.startingCash,
+            totalSales: shift.totalSales ?? 0,
+            totalExpenses: shift.totalExpenses ?? 0,
+            finalCash: shift.finalCash ?? 0,
+            status: shift.status,
+            date: shift.date,
+            cashier: shift.cashier || 'كاشير',
+            salesDetails: shift.salesDetails ?? { cash: 0, card: 0, instapay: 0 },
+          };
+      setShifts((prev) => [...prev, shiftToAdd]);
+      toast.success('تم فتح الوردية بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء فتح الوردية');
+      throw error;
+    }
   };
 
-  const updateShift = (id: string, shift: Partial<Shift>) => {
-    const updatedShifts = shifts.map((s) => (s.id === id ? { ...s, ...shift } : s));
-    setShifts(updatedShifts);
-    localStorage.setItem('shifts', JSON.stringify(updatedShifts));
-    toast.success('تم تحديث الوردية بنجاح');
+  const updateShift = async (id: string, shift: Partial<Shift>) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الوردية غير صالح');
+      return;
+    }
+    try {
+      const payload: Record<string, unknown> = {};
+      if (shift.startTime != null) payload.startTime = shift.startTime;
+      if (shift.endTime != null) payload.endTime = shift.endTime;
+      if (shift.startingCash != null) payload.startingCash = shift.startingCash;
+      if (shift.totalSales != null) payload.totalSales = shift.totalSales;
+      if (shift.totalExpenses != null) payload.totalExpenses = shift.totalExpenses;
+      if (shift.finalCash != null) payload.finalCash = shift.finalCash;
+      if (shift.status != null) payload.status = shift.status;
+      if (shift.date != null) payload.date = shift.date;
+      if (shift.cashier != null) payload.cashier = shift.cashier;
+      if (shift.salesDetails != null) payload.salesDetails = shift.salesDetails;
+
+      await shiftService.updateShift(normalizedId, payload);
+      setShifts((prev) =>
+        prev.map((s) => (s.id === normalizedId ? { ...s, ...shift } : s))
+      );
+      toast.success('تم تحديث الوردية بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث الوردية');
+      throw error;
+    }
   };
 
-  const closeShift = (id: string) => {
-    const updatedShifts = shifts.map((s) =>
-      s.id === id ? { ...s, status: 'closed' as const } : s
-    );
-    setShifts(updatedShifts);
-    localStorage.setItem('shifts', JSON.stringify(updatedShifts));
-    toast.success('تم إغلاق الوردية بنجاح');
+  const closeShift = async (id: string) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الوردية غير صالح');
+      return;
+    }
+    try {
+      await shiftService.updateShift(normalizedId, { status: 'closed' });
+      setShifts((prev) =>
+        prev.map((s) =>
+          s.id === normalizedId ? { ...s, status: 'closed' as const } : s
+        )
+      );
+      toast.success('تم إغلاق الوردية بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء إغلاق الوردية');
+      throw error;
+    }
   };
 
   // Notifications functions
@@ -1884,6 +2348,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     updatePurchaseInvoice,
     deletePurchaseInvoice,
     shifts,
+    fetchShifts,
     addShift,
     updateShift,
     closeShift,

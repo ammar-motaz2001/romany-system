@@ -321,4 +321,5 @@ class PurchaseInvoiceService {
   }
 }
 
-export default new PurchaseInvoiceService();
+export const purchaseInvoiceService = new PurchaseInvoiceService();
+export default purchaseInvoiceService;

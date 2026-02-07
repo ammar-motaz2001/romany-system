@@ -18,16 +18,12 @@ export default function InventoryPage() {
     item.category.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // Calculate stats from real data
-  const totalValue = filteredInventory.reduce((acc, item) => acc + item.stock * item.price, 0);
-  const totalItems = filteredInventory.length;
-  const lowStockItems = filteredInventory.filter(item => item.stock < (item.minStock || 10)).length;
-  
-  // Calculate total units
-  const totalUnits = filteredInventory.reduce((acc, item) => acc + item.stock, 0);
-  
-  // Get unique categories
-  const uniqueCategories = new Set(filteredInventory.map(item => item.category)).size;
+  // Card stats from full inventory (real data, not filtered)
+  const totalValue = inventory.reduce((acc, item) => acc + item.stock * item.price, 0);
+  const totalItems = inventory.length;
+  const lowStockItems = inventory.filter(item => item.stock < (item.minStock ?? 10)).length;
+  const totalUnits = inventory.reduce((acc, item) => acc + item.stock, 0);
+  const uniqueCategories = new Set(inventory.map(item => item.category)).size;
 
   const handleEdit = (item: any) => {
     setEditingItem(item);
@@ -59,45 +55,45 @@ export default function InventoryPage() {
       <Header title="إدارة المخزون" />
 
       <div className="p-8">
-        {/* Stats */}
+        {/* Stats - real data from inventory */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="p-6">
+          <Card className="p-6 dark:bg-gray-800">
             <div className="flex items-start gap-4">
-              <div className="bg-purple-100 p-3 rounded-xl text-2xl">📦</div>
+              <div className="bg-purple-100 dark:bg-purple-900/30 p-3 rounded-xl text-2xl">📦</div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">الطلبات النشطة</p>
-                <h3 className="text-2xl font-bold text-gray-900 mb-1">8 طلبات</h3>
-                <p className="text-xs text-gray-500">متابعة للطلبات</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">إجمالي الوحدات</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{totalUnits} وحدة</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">في المخزون</p>
               </div>
             </div>
           </Card>
-          <Card className="p-6">
+          <Card className="p-6 dark:bg-gray-800">
             <div className="flex items-start gap-4">
-              <div className="bg-blue-100 p-3 rounded-xl text-2xl">🔗</div>
+              <div className="bg-blue-100 dark:bg-blue-900/30 p-3 rounded-xl text-2xl">🔗</div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">إجمالي الأصناف</p>
-                <h3 className="text-2xl font-bold text-gray-900 mb-1">{totalItems} صنف</h3>
-                <p className="text-xs text-gray-500">في {uniqueCategories} أصناف مختلفة</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">إجمالي الأصناف</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{totalItems} صنف</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">في {uniqueCategories} فئات</p>
               </div>
             </div>
           </Card>
-          <Card className="p-6">
+          <Card className="p-6 dark:bg-gray-800">
             <div className="flex items-start gap-4">
-              <div className="bg-yellow-100 p-3 rounded-xl text-2xl">⚠️</div>
+              <div className="bg-yellow-100 dark:bg-yellow-900/30 p-3 rounded-xl text-2xl">⚠️</div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">منتجات منخفضة الكمية</p>
-                <h3 className="text-2xl font-bold text-gray-900 mb-1">{lowStockItems} منتج</h3>
-                <p className="text-xs text-gray-500">تحتاج إلى إعادة الورود</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">منتجات منخفضة الكمية</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{lowStockItems} منتج</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">تحتاج إلى إعادة التوريد</p>
               </div>
             </div>
           </Card>
-          <Card className="p-6">
+          <Card className="p-6 dark:bg-gray-800">
             <div className="flex items-start gap-4">
-              <div className="bg-pink-100 p-3 rounded-xl text-2xl">💰</div>
+              <div className="bg-pink-100 dark:bg-pink-900/30 p-3 rounded-xl text-2xl">💰</div>
               <div>
-                <p className="text-sm text-gray-600 mb-1">إجمالي قيمة المخزون</p>
-                <h3 className="text-2xl font-bold text-gray-900 mb-1">{totalValue.toFixed(0)} ج.م</h3>
-                <p className="text-xs text-gray-500">+2.4% عن الشهر الماضي</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">إجمالي قيمة المخزون</p>
+                <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">{totalValue.toFixed(0)} ج.م</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400">قيمة المخزون الحالية</p>
               </div>
             </div>
           </Card>

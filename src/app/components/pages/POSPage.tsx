@@ -139,41 +139,44 @@ export default function POSPage() {
       })
     : [];
 
-  const handleStartShift = () => {
+  const handleStartShift = async () => {
     if (!startingCash) {
       alert('يرجى إدخال رصيد الكاش الافتتاحي!');
       return;
     }
 
-    const cashierName = currentUser ? `${currentUser.firstName} ${currentUser.lastName}` : 'كاشير';
+    const cashierName = currentUser?.name?.trim() || currentUser?.username?.trim() || 'كاشير';
 
-    addShift({
-      startTime: new Date().toISOString(),
-      endTime: '',
-      startingCash: parseFloat(startingCash),
-      totalSales: 0,
-      totalExpenses: 0,
-      finalCash: 0,
-      status: 'open',
-      date: new Date().toISOString(),
-      cashier: cashierName,
-      salesDetails: {
-        cash: 0,
-        card: 0,
-        instapay: 0,
-      },
-    });
+    try {
+      await addShift({
+        startTime: new Date().toISOString(),
+        endTime: '',
+        startingCash: parseFloat(startingCash),
+        totalSales: 0,
+        totalExpenses: 0,
+        finalCash: 0,
+        status: 'open',
+        date: new Date().toISOString(),
+        cashier: cashierName,
+        salesDetails: {
+          cash: 0,
+          card: 0,
+          instapay: 0,
+        },
+      });
 
-    // Request notification permission and send notification
-    NotificationManager.requestPermission().then((enabled) => {
-      if (enabled) {
-        NotificationManager.notifyShiftStarted(cashierName, parseFloat(startingCash));
-      }
-    });
+      // Request notification permission and send notification
+      NotificationManager.requestPermission().then((enabled) => {
+        if (enabled) {
+          NotificationManager.notifyShiftStarted(cashierName, parseFloat(startingCash));
+        }
+      });
 
-    setShowStartShiftDialog(false);
-    setStartingCash('');
-    alert('تم فتح الوردية بنجاح!');
+      setShowStartShiftDialog(false);
+      setStartingCash('');
+    } catch {
+      // Error already shown by addShift toast
+    }
   };
 
   const categories = ['الكل', 'تصفيف الشعر', 'العناية بالبشرة', 'مكياج', 'منتجات التجميل'];

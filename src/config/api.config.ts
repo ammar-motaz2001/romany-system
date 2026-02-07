@@ -90,6 +90,15 @@ export const API_ENDPOINTS = {
     DELETE: (id: string) => `/expenses/${id}`,
   },
 
+  // Shifts
+  SHIFTS: {
+    GET_ALL: '/shifts',
+    GET_BY_ID: (id: string) => `/shifts/${id}`,
+    CREATE: '/shifts',
+    UPDATE: (id: string) => `/shifts/${id}`,
+    DELETE: (id: string) => `/shifts/${id}`,
+  },
+
   // Employees
   EMPLOYEES: {
     GET_ALL: '/employees',

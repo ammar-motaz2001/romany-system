@@ -14,6 +14,7 @@ export { settingService, default as setting } from './setting.service';
 export { notificationService, default as notification } from './notification.service';
 export { default as supplier } from './supplier.service';
 export { default as purchaseInvoice } from './purchaseInvoice.service';
+export { shiftService, default as shift } from './shift.service';
 
 // Re-export types
 export type { LoginCredentials, RegisterData, User, AuthResponse } from './auth.service';

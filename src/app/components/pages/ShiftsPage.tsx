@@ -1,15 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Calendar, Clock, DollarSign, User, CheckCircle, XCircle, TrendingUp, Eye, Printer, Search, History } from 'lucide-react';
 import { Card } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/app/components/ui/select';
 import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
 import ShiftReportModal from '@/app/components/pages/ShiftReportModal';
@@ -17,44 +10,34 @@ import ShiftReportModal from '@/app/components/pages/ShiftReportModal';
 // Shifts Management Page
 
 export default function ShiftsPage() {
-  const { shifts, currentUser } = useApp();
+  const { shifts, fetchShifts } = useApp();
   const [filterStatus, setFilterStatus] = useState<'all' | 'open' | 'closed'>('all');
+
+  // Fetch shifts from GET /api/shifts when الورديات page is opened
+  useEffect(() => {
+    fetchShifts();
+  }, [fetchShifts]);
   const [dateFilter, setDateFilter] = useState<string>('');
-  const [viewMode, setViewMode] = useState<'current' | 'all'>('current');
   const [selectedShift, setSelectedShift] = useState<any>(null);
   const [showReportModal, setShowReportModal] = useState(false);
 
-  // Get current user's open shift
-  const currentShift = useMemo(() => {
-    if (!currentUser) return null;
-    return shifts.find(s => s.userId === currentUser.id && s.status === 'open');
-  }, [shifts, currentUser]);
-
-  // Filter shifts
+  // Filter shifts (جميع الورديات — date and status only)
   const filteredShifts = useMemo(() => {
     let result = [...shifts];
 
-    // View mode filter: Show only current user's shifts or all
-    if (viewMode === 'current' && currentUser) {
-      // Show only current user's shifts
-      result = result.filter(shift => shift.userId === currentUser.id);
-    }
-
-    // Date filter (for "all" mode)
-    if (dateFilter && viewMode === 'all') {
+    if (dateFilter) {
       result = result.filter(shift => {
         const shiftDate = new Date(shift.startTime).toISOString().split('T')[0];
         return shiftDate === dateFilter;
       });
     }
 
-    // Status filter
     if (filterStatus !== 'all') {
       result = result.filter(shift => shift.status === filterStatus);
     }
 
     return result;
-  }, [shifts, filterStatus, dateFilter, viewMode, currentUser]);
+  }, [shifts, filterStatus, dateFilter]);
 
   // Sort shifts by date (newest first)
   const sortedShifts = [...filteredShifts].sort((a, b) => 
@@ -117,39 +100,23 @@ export default function ShiftsPage() {
         {/* Filters Card */}
         <Card className="p-6 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Date Filter - Only enabled in "all" mode */}
+            {/* Date Filter */}
             <div className="relative">
               <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5 pointer-events-none" />
               <Input
                 type="date"
                 value={dateFilter}
                 onChange={(e) => setDateFilter(e.target.value)}
-                disabled={viewMode === 'current'}
                 className="pl-10"
                 placeholder="البحث بالتاريخ"
               />
             </div>
 
-            {/* View Mode Filter */}
-            <Select value={viewMode} onValueChange={(value: 'current' | 'all') => setViewMode(value)}>
-              <SelectTrigger>
-                <SelectValue placeholder="عرض الورديات" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="current">
-                  <div className="flex items-center gap-2">
-                    <User className="w-4 h-4" />
-                    <span>ورديّاتي فقط</span>
-                  </div>
-                </SelectItem>
-                <SelectItem value="all">
-                  <div className="flex items-center gap-2">
-                    <History className="w-4 h-4" />
-                    <span>جميع الورديات</span>
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            {/* جميع الورديات — fixed label (no dropdown) */}
+            <div className="flex items-center gap-2 text-gray-700 dark:text-gray-300 font-medium">
+              <History className="w-5 h-5" />
+              <span>جميع الورديات</span>
+            </div>
           </div>
         </Card>
 
@@ -254,7 +221,7 @@ export default function ShiftsPage() {
                       <div className="flex items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
                         <span className="flex items-center gap-1">
                           <User className="w-4 h-4" />
-                          {shift.cashier}
+                          {shift.cashier?.trim() || 'كاشير'}
                         </span>
                         <span className="flex items-center gap-1">
                           <Clock className="w-4 h-4" />
@@ -278,28 +245,28 @@ export default function ShiftsPage() {
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">إجمالي المبيعات</p>
                     <p className="text-lg font-bold text-green-600">
-                      {shift.totalSales.toFixed(2)} ج.م
+                      {Number(shift.totalSales ?? 0).toFixed(2)} ج.م
                     </p>
                   </div>
 
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">نقدي</p>
                     <p className="text-lg font-bold text-blue-600">
-                      {shift.salesDetails?.cash.toFixed(2) || '0.00'} ج.م
+                      {Number(shift.salesDetails?.cash ?? 0).toFixed(2)} ج.م
                     </p>
                   </div>
 
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">بطاقة</p>
                     <p className="text-lg font-bold text-purple-600">
-                      {shift.salesDetails?.card.toFixed(2) || '0.00'} ج.م
+                      {Number(shift.salesDetails?.card ?? 0).toFixed(2)} ج.م
                     </p>
                   </div>
 
                   <div>
                     <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">InstaPay</p>
                     <p className="text-lg font-bold text-pink-600">
-                      {shift.salesDetails?.instapay.toFixed(2) || '0.00'} ج.م
+                      {Number(shift.salesDetails?.instapay ?? 0).toFixed(2)} ج.م
                     </p>
                   </div>
                 </div>
