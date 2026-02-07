@@ -130,14 +130,9 @@ export default function POSPage() {
   // Get current open shift
   const currentShift = shifts.find(shift => shift.status === 'open');
   
-  // Get sales for this shift (عدد المعاملات = الفواتير in this shift)
+  // Sales for this shift only (عدد المعاملات = الفواتير in this shift, not all sales)
   const todaySales = currentShift
-    ? sales.filter(sale => {
-        const shiftId = (sale as { shiftId?: string }).shiftId;
-        if (shiftId != null && shiftId !== '') return shiftId === currentShift.id;
-        const shiftDay = new Date(currentShift.startTime).toISOString().split('T')[0];
-        return sale.date === shiftDay;
-      })
+    ? sales.filter(sale => (sale as { shiftId?: string }).shiftId === currentShift.id)
     : [];
 
   const handleStartShift = async () => {
