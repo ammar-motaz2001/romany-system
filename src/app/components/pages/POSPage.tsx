@@ -314,7 +314,7 @@ export default function POSPage() {
     completePayment(methodName);
   };
 
-  const completePayment = (method: string) => {
+  const completePayment = async (method: string) => {
     // Get or create customer
     const customer = getOrCreateCustomer(customerName, customerPhone);
     
@@ -367,7 +367,7 @@ export default function POSPage() {
       paymentMethod: method
     };
 
-    addSale(saleData);
+    await addSale(saleData);
 
     // Send sale notification
     NotificationManager.notifyNewSale(total, customerName);

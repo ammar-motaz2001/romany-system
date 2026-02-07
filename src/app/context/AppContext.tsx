@@ -576,6 +576,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  /** Normalize a single sale from API (for addSale) so context gets correct shape */
+  function mapBackendSaleToContext(raw: unknown, fallback: Omit<Sale, 'id'>): Sale {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const dateRaw = r.date ?? r.saleDate ?? r.createdAt ?? fallback.date;
+    const dateStr =
+      typeof dateRaw === 'string'
+        ? dateRaw.includes('T')
+          ? dateRaw.split('T')[0]
+          : dateRaw
+        : '';
+    return {
+      id: String(r.id ?? r._id ?? Date.now().toString()),
+      customer: String(r.customer ?? r.customerName ?? fallback.customer ?? ''),
+      customerPhone: (r.customerPhone ?? fallback.customerPhone) as string | undefined,
+      service: String(r.service ?? r.serviceName ?? fallback.service ?? ''),
+      amount: Number(r.amount ?? r.total ?? fallback.amount ?? 0),
+      discount: (r.discount ?? fallback.discount) as number | undefined,
+      status: String(r.status ?? fallback.status ?? ''),
+      date: dateStr || fallback.date,
+      category: (r.category ?? fallback.category) as string | undefined,
+      items: (r.items ?? fallback.items) as Sale['items'],
+      paymentMethod: (r.paymentMethod ?? fallback.paymentMethod) as string | undefined,
+      notes: (r.notes ?? fallback.notes) as string | undefined,
+    };
+  }
+
   /** Normalize backend sale shape so dashboard gets correct fields (date, amount, customer, service) */
   function mapBackendSalesToContext(list: unknown[]): Sale[] {
     return list.map((s) => {
@@ -1006,6 +1032,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Sales functions - integrated with API
+  // Flow: المبيعات (POS) calls addSale → we push to context (sales) → الفواتير (Invoices) reads same sales → new invoice appears
   const addSale = async (sale: Omit<Sale, 'id'>) => {
     let customerId = customers.find((c) => c.phone === sale.customerPhone)?.id;
     if (!customerId && sale.customer && sale.customerPhone && sale.customer !== 'عميل نقدي') {
@@ -1034,10 +1061,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         paymentMethod: sale.paymentMethod,
         notes: sale.notes,
       });
-      const newSale = unwrapData<Sale>(created) ?? (created as Sale);
-      if (newSale && typeof newSale === 'object' && 'id' in newSale) {
-        setSales((prev) => [...prev, newSale as Sale]);
-      }
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const newSale = mapBackendSaleToContext(raw, sale);
+      setSales((prev) => [...prev, newSale]);
       if (customerId) {
         const customer = customers.find((c) => c.id === customerId);
         if (customer) {

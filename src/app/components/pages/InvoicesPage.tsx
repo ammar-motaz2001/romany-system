@@ -40,6 +40,7 @@ import { generateTablePDF, generateInvoicePDF } from '@/utils/pdfExportArabic';
 import { toast } from 'sonner';
 
 export default function InvoicesPage() {
+  // sales = same data as المبيعات (POS); new sale added in POS appears here without refresh
   const { sales, customers, shifts, currentUser, systemSettings } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -49,47 +50,58 @@ export default function InvoicesPage() {
   const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
 
+  // Normalize date to YYYY-MM-DD for comparison
+  const toDateOnly = (dateVal: string | undefined): string => {
+    if (!dateVal) return '';
+    const d = new Date(dateVal);
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-CA');
+  };
+
   // Get current user's open shift
   const currentShift = useMemo(() => {
     if (!currentUser) return null;
     return shifts.find(s => s.userId === currentUser.id && s.status === 'open');
   }, [shifts, currentUser]);
 
+  const currentShiftDate = useMemo(() => {
+    if (!currentShift) return '';
+    return toDateOnly((currentShift as { date?: string }).date ?? currentShift.startTime);
+  }, [currentShift]);
+
   // Filter and search invoices
   const filteredInvoices = useMemo(() => {
     let result = [...sales];
 
     // View mode filter: Show only current shift invoices or all
-    if (viewMode === 'current' && currentShift) {
-      // Show only invoices from current shift's date
-      result = result.filter(invoice => {
-        const invoiceDate = new Date(invoice.date).toDateString();
-        const shiftDate = new Date(currentShift.startTime).toDateString();
-        return invoiceDate === shiftDate;
-      });
+    if (viewMode === 'current' && currentShiftDate) {
+      result = result.filter(invoice => toDateOnly(invoice.date) === currentShiftDate);
     }
 
     // Date filter (for "all" mode)
     if (dateFilter && viewMode === 'all') {
-      result = result.filter(invoice => {
-        const invoiceDate = new Date(invoice.date).toISOString().split('T')[0];
-        return invoiceDate === dateFilter;
-      });
+      result = result.filter(invoice => toDateOnly(invoice.date) === dateFilter);
     }
 
     // Search filter (by customer name or invoice number)
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(invoice => 
+      result = result.filter(invoice =>
         invoice.customer?.toLowerCase().includes(query) ||
         invoice.id?.toLowerCase().includes(query) ||
         invoice.customerPhone?.includes(query)
       );
     }
 
-    // Status filter
+    // Status filter (accept both Arabic and English)
     if (statusFilter !== 'all') {
-      result = result.filter(invoice => invoice.status === statusFilter);
+      const completedValues = ['منتهي', 'مكتمل', 'completed'];
+      const isCompletedStatus = (s: string) =>
+        completedValues.includes((s ?? '').toLowerCase());
+      if (statusFilter === 'completed') {
+        result = result.filter(invoice => isCompletedStatus(invoice.status ?? ''));
+      } else {
+        result = result.filter(invoice => !isCompletedStatus(invoice.status ?? ''));
+      }
     }
 
     // Payment method filter
@@ -99,15 +111,21 @@ export default function InvoicesPage() {
 
     // Sort by date (newest first)
     return result.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [sales, searchQuery, statusFilter, paymentMethodFilter, dateFilter, viewMode, currentShift]);
+  }, [sales, searchQuery, statusFilter, paymentMethodFilter, dateFilter, viewMode, currentShiftDate]);
 
-  // Calculate statistics
+  // Completed = منتهي | مكتمل | completed (any language)
+  const isInvoiceCompleted = (inv: { status?: string }) => {
+    const s = (inv.status ?? '').toLowerCase();
+    return ['منتهي', 'مكتمل', 'completed'].includes(s);
+  };
+
+  // Calculate statistics (cards use same data as table)
   const stats = useMemo(() => {
     return {
       total: filteredInvoices.length,
-      completed: filteredInvoices.filter(inv => inv.status === 'منتهي' || inv.status === 'completed').length,
-      incomplete: filteredInvoices.filter(inv => inv.status !== 'منتهي' && inv.status !== 'completed').length,
-      totalRevenue: filteredInvoices.reduce((sum, inv) => sum + inv.amount, 0),
+      completed: filteredInvoices.filter(inv => isInvoiceCompleted(inv)).length,
+      incomplete: filteredInvoices.filter(inv => !isInvoiceCompleted(inv)).length,
+      totalRevenue: filteredInvoices.reduce((sum, inv) => sum + Number(inv.amount ?? 0), 0),
     };
   }, [filteredInvoices]);
 
