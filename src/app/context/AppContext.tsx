@@ -118,6 +118,8 @@ interface Sale {
   items?: { name: string; quantity: number; price: number; customPrice?: number; notes?: string }[];
   paymentMethod?: string;
   notes?: string;
+  shiftId?: string;
+  subtotal?: number;
 }
 
 interface InventoryItem {
@@ -653,6 +655,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       items: (r.items ?? fallback.items) as Sale['items'],
       paymentMethod: (r.paymentMethod ?? fallback.paymentMethod) as string | undefined,
       notes: (r.notes ?? fallback.notes) as string | undefined,
+      shiftId: (r.shiftId ?? r.shift_id ?? (fallback as Sale).shiftId) as string | undefined,
+      subtotal: (r.subtotal ?? (fallback as Sale).subtotal) as number | undefined,
     };
   }
 
@@ -668,7 +672,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : dateRaw
           : '';
       return {
-        id: String(r.id ?? ''),
+        id: String(r.id ?? r._id ?? ''),
         customer: String(r.customer ?? r.customerName ?? ''),
         customerPhone: r.customerPhone as string | undefined,
         service: String(r.service ?? r.serviceName ?? r.services ?? ''),
@@ -680,6 +684,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         items: r.items as Sale['items'],
         paymentMethod: r.paymentMethod as string | undefined,
         notes: r.notes as string | undefined,
+        shiftId: (r.shiftId ?? r.shift_id) as string | undefined,
+        subtotal: r.subtotal as number | undefined,
       };
     });
   }

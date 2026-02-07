@@ -130,12 +130,13 @@ export default function POSPage() {
   // Get current open shift
   const currentShift = shifts.find(shift => shift.status === 'open');
   
-  // Get today's sales for shift closing
-  const todaySales = currentShift 
+  // Get sales for this shift (عدد المعاملات = الفواتير in this shift)
+  const todaySales = currentShift
     ? sales.filter(sale => {
-        const saleDate = new Date(sale.date);
-        const shiftStart = new Date(currentShift.startTime);
-        return saleDate >= shiftStart;
+        const shiftId = (sale as { shiftId?: string }).shiftId;
+        if (shiftId != null && shiftId !== '') return shiftId === currentShift.id;
+        const shiftDay = new Date(currentShift.startTime).toISOString().split('T')[0];
+        return sale.date === shiftDay;
       })
     : [];
 
@@ -365,7 +366,7 @@ export default function POSPage() {
       customerPhone: customerPhone,
       service: serviceName,
       amount: total,
-      discount: parseFloat(discount) || 0,
+      discount: discountAmount,
       status: invoiceStatus,
       date: new Date().toLocaleDateString('en-CA'),
       items: cart.map(item => ({
@@ -375,7 +376,9 @@ export default function POSPage() {
         customPrice: item.customPrice,
         notes: item.notes
       })),
-      paymentMethod: method
+      paymentMethod: method,
+      shiftId: currentShift?.id,
+      subtotal,
     };
 
     await addSale(saleData);

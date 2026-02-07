@@ -32,7 +32,7 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
       if (sale.discount && sale.subtotal) return sum + (sale.subtotal - sale.amount);
       return sum;
     }, 0);
-    const returns = 0;
+    const netSales = totalSales - discounts;
     const cashPayments = shiftSales
       .filter(sale => sale.paymentMethod === 'نقدي' || sale.paymentMethod === 'cash')
       .reduce((sum, sale) => sum + sale.amount, 0);
@@ -52,11 +52,8 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
       .reduce((sum, expense) => sum + expense.amount, 0);
     return {
       totalSales,
-      servicesSales,
-      productsSales,
       discounts,
-      returns,
-      netSales: totalSales - returns,
+      netSales,
       cashPayments,
       cardPayments,
       instaPayPayments,
@@ -77,11 +74,8 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
 
   const stats = {
     totalSales: hasApiData && apiTotalSales !== null ? apiTotalSales : derivedStats.totalSales,
-    servicesSales: derivedStats.servicesSales,
-    productsSales: derivedStats.productsSales,
     discounts: derivedStats.discounts,
-    returns: derivedStats.returns,
-    netSales: hasApiData && apiTotalSales !== null ? apiTotalSales - derivedStats.discounts - derivedStats.returns : derivedStats.netSales,
+    netSales: hasApiData && apiTotalSales !== null ? apiTotalSales - derivedStats.discounts : derivedStats.netSales,
     cashPayments: (hasApiData && apiSalesDetails && typeof apiSalesDetails.cash === 'number') ? apiSalesDetails.cash : derivedStats.cashPayments,
     cardPayments: (hasApiData && apiSalesDetails && typeof apiSalesDetails.card === 'number') ? apiSalesDetails.card : derivedStats.cardPayments,
     instaPayPayments: (hasApiData && apiSalesDetails && typeof apiSalesDetails.instapay === 'number') ? apiSalesDetails.instapay : derivedStats.instaPayPayments,
@@ -324,38 +318,8 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
                     borderBottom: '1px solid #e5e7eb',
                     fontSize: '15px'
                   }}>
-                    <span style={{ color: '#6b7280' }}>Services Sales:</span>
-                    <span style={{ fontWeight: '600', color: '#111827' }}>{stats.servicesSales.toFixed(2)} EGP</span>
-                  </div>
-                  <div className="row" style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: '10px 0',
-                    borderBottom: '1px solid #e5e7eb',
-                    fontSize: '15px'
-                  }}>
-                    <span style={{ color: '#6b7280' }}>Products Sales:</span>
-                    <span style={{ fontWeight: '600', color: '#111827' }}>{stats.productsSales.toFixed(2)} EGP</span>
-                  </div>
-                  <div className="row" style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: '10px 0',
-                    borderBottom: '1px solid #e5e7eb',
-                    fontSize: '15px'
-                  }}>
                     <span style={{ color: '#6b7280' }}>Total Sales:</span>
-                    <span style={{ fontWeight: '600', color: '#111827' }}>{stats.totalSales.toFixed(2)} EGP</span>
-                  </div>
-                  <div className="row" style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    padding: '10px 0',
-                    borderBottom: '1px solid #e5e7eb',
-                    fontSize: '15px'
-                  }}>
-                    <span style={{ color: '#dc2626' }}>Discounts:</span>
-                    <span style={{ fontWeight: '600', color: '#dc2626' }}>-{stats.discounts.toFixed(2)} EGP</span>
+                    <span style={{ fontWeight: '600', color: '#111827' }}>{stats.totalSales.toFixed(2)} ج.م</span>
                   </div>
                   <div className="row" style={{
                     display: 'flex',
@@ -364,8 +328,8 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
                     borderBottom: '2px solid #22c55e',
                     fontSize: '15px'
                   }}>
-                    <span style={{ color: '#dc2626' }}>Returns:</span>
-                    <span style={{ fontWeight: '600', color: '#dc2626' }}>-{stats.returns.toFixed(2)} EGP</span>
+                    <span style={{ color: '#dc2626' }}>Discounts:</span>
+                    <span style={{ fontWeight: '600', color: '#dc2626' }}>-{stats.discounts.toFixed(2)} ج.م</span>
                   </div>
                   <div className="row total" style={{
                     display: 'flex',
@@ -374,7 +338,7 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
                     fontSize: '18px'
                   }}>
                     <span style={{ fontWeight: 'bold', color: '#166534' }}>Net Sales:</span>
-                    <span style={{ fontWeight: 'bold', color: '#16a34a', fontSize: '20px' }}>{stats.netSales.toFixed(2)} EGP</span>
+                    <span style={{ fontWeight: 'bold', color: '#16a34a', fontSize: '20px' }}>{stats.netSales.toFixed(2)} ج.م</span>
                   </div>
                 </div>
               </div>
@@ -738,39 +702,13 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
             </div>
           </Card>
 
-          {/* مبيعات الخدمات */}
-          <Card className="p-4 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 border-purple-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">مبيعات الخدمات</p>
-                <p className="text-2xl font-bold text-purple-600">{stats.servicesSales.toFixed(2)} ج.م</p>
-              </div>
-              <TrendingUp className="w-8 h-8 text-purple-600" />
-            </div>
-          </Card>
-
-          {/* مبيعات المنتجات */}
-          <Card className="p-4 bg-gradient-to-br from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 border-orange-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600 dark:text-gray-400">مبيعات المنتجات</p>
-                <p className="text-2xl font-bold text-orange-600">{stats.productsSales.toFixed(2)} ج.م</p>
-              </div>
-              <TrendingUp className="w-8 h-8 text-orange-600" />
-            </div>
-          </Card>
         </div>
 
-        {/* الخصومات والمرتجعات */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        {/* الخصومات وصافي المبيعات */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <Card className="p-4">
             <p className="text-sm text-gray-600 dark:text-gray-400">الخصومات</p>
             <p className="text-xl font-bold text-red-600">-{stats.discounts.toFixed(2)} ج.م</p>
-          </Card>
-
-          <Card className="p-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400">المرتجعات</p>
-            <p className="text-xl font-bold text-red-600">-{stats.returns.toFixed(2)} ج.م</p>
           </Card>
 
           <Card className="p-4 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20">

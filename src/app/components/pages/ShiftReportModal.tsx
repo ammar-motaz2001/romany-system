@@ -13,8 +13,13 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
   const { systemSettings, sales, expenses } = useApp();
   const printRef = useRef<HTMLDivElement>(null);
 
-  // Prefer real data from API (shift endpoint); fallback to derived from context
-  const shiftSales = sales.filter(sale => sale.shiftId === shift.id);
+  // Match sales to shift: by shiftId when present, else by same calendar day as shift
+  const shiftDay = new Date(shift.startTime).toISOString().split('T')[0];
+  const shiftSales = sales.filter(sale => {
+    const sid = (sale as { shiftId?: string }).shiftId;
+    if (sid != null && sid !== '') return sid === shift.id;
+    return sale.date === shiftDay;
+  });
   const derivedCash = shiftSales
     .filter(sale => sale.paymentMethod === 'نقدي')
     .reduce((sum, sale) => sum + sale.amount, 0);
@@ -39,18 +44,15 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
   const cardPayments = (shift.salesDetails as { card?: number } | undefined)?.card ?? derivedCard;
   const instaPayPayments = (shift.salesDetails as { instapay?: number } | undefined)?.instapay ?? derivedInstaPay;
 
-  const servicesSales = shiftSales
-    .filter(sale => !sale.items || sale.items.length === 0)
-    .reduce((sum, sale) => sum + sale.amount, 0);
-  const productsSales = shiftSales
-    .filter(sale => sale.items && sale.items.length > 0)
-    .reduce((sum, sale) => sum + sale.amount, 0);
+  // Discount: use sale.discount (amount) when set; else (subtotal - amount) if subtotal exists
   const discounts = shiftSales.reduce((sum, sale) => {
-    if (sale.discount && sale.subtotal) return sum + (sale.subtotal - sale.amount);
+    const d = Number((sale as { discount?: number }).discount);
+    if (d > 0) return sum + d;
+    const sub = (sale as { subtotal?: number }).subtotal;
+    if (sub != null && sale.amount != null && sub > sale.amount) return sum + (sub - sale.amount);
     return sum;
   }, 0);
-  const returns = 0;
-  const netSales = totalSales - discounts - returns;
+  const netSales = totalSales - discounts;
 
   const shiftExpenses = Number(shift.totalExpenses ?? shift.total_expenses) || derivedExpenses;
   const openingBalance = Number(shift.startingCash ?? shift.openingBalance ?? 0);
@@ -257,30 +259,6 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                     <span style={{ fontWeight: '600', color: '#111827' }}>{shiftSales.length}</span>
                   </div>
                 )}
-                {!hasApiTotals && (servicesSales > 0 || productsSales > 0) && (
-                  <>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      padding: '10px 0',
-                      borderBottom: '1px solid #e5e7eb',
-                      fontSize: '15px'
-                    }}>
-                      <span style={{ color: '#6b7280' }}>Services Sales:</span>
-                      <span style={{ fontWeight: '600', color: '#111827' }}>{servicesSales.toFixed(2)} ج.م</span>
-                    </div>
-                    <div style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      padding: '10px 0',
-                      borderBottom: '1px solid #e5e7eb',
-                      fontSize: '15px'
-                    }}>
-                      <span style={{ color: '#6b7280' }}>Products Sales:</span>
-                      <span style={{ fontWeight: '600', color: '#111827' }}>{productsSales.toFixed(2)} ج.م</span>
-                    </div>
-                  </>
-                )}
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -295,21 +273,11 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   display: 'flex',
                   justifyContent: 'space-between',
                   padding: '10px 0',
-                  borderBottom: '1px solid #e5e7eb',
+                  borderBottom: '2px solid #22c55e',
                   fontSize: '15px'
                 }}>
                   <span style={{ color: '#dc2626' }}>Discounts:</span>
                   <span style={{ fontWeight: '600', color: '#dc2626' }}>-{discounts.toFixed(2)} ج.م</span>
-                </div>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  padding: '10px 0',
-                  borderBottom: '2px solid #22c55e',
-                  fontSize: '15px'
-                }}>
-                  <span style={{ color: '#dc2626' }}>Returns:</span>
-                  <span style={{ fontWeight: '600', color: '#dc2626' }}>-{returns.toFixed(2)} ج.م</span>
                 </div>
                 <div style={{
                   display: 'flex',
