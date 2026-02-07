@@ -578,7 +578,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return list.map((c) => {
       const r = c as Record<string, unknown>;
       return {
-        id: String(r.id ?? ''),
+        id: String(r.id ?? r._id ?? ''),
         name: String(r.name ?? ''),
         email: String(r.email ?? ''),
         phone: String(r.phone ?? ''),
@@ -648,28 +648,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   /** Normalize backend appointment shape for dashboard (date, customer, service, status) */
   function mapBackendAppointmentsToContext(list: unknown[]): Appointment[] {
-    return list.map((a) => {
-      const r = a as Record<string, unknown>;
-      const dateRaw = r.date ?? r.appointmentDate ?? r.scheduledAt ?? r.createdAt;
-      const dateStr =
-        typeof dateRaw === 'string'
-          ? dateRaw.includes('T')
-            ? dateRaw.split('T')[0]
-            : dateRaw
-          : '';
-      return {
-        id: String(r.id ?? ''),
-        customer: String(r.customer ?? r.customerName ?? ''),
-        customerPhone: r.customerPhone as string | undefined,
-        customerImage: r.customerImage as string | undefined,
-        service: String(r.service ?? r.serviceName ?? ''),
-        time: String(r.time ?? r.startTime ?? ''),
-        duration: String(r.duration ?? ''),
-        status: String(r.status ?? ''),
-        date: dateStr,
-        specialist: r.specialist as string | undefined,
-      };
-    });
+    return list.map((a) => mapBackendAppointmentToContext(a));
+  }
+
+  /** Map a single backend appointment (for create/update response). Store status in Arabic for UI. */
+  function mapBackendAppointmentToContext(raw: unknown, fallback?: Partial<Appointment>): Appointment {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    const dateRaw = r.date ?? r.appointmentDate ?? r.scheduledAt ?? r.createdAt ?? fallback?.date;
+    const dateStr =
+      typeof dateRaw === 'string'
+        ? dateRaw.includes('T')
+          ? dateRaw.split('T')[0]
+          : dateRaw
+        : '';
+    const apiStatus = String(r.status ?? fallback?.status ?? '');
+    return {
+      id: String(r.id ?? r._id ?? fallback?.id ?? ''),
+      customer: String(r.customer ?? r.customerName ?? fallback?.customer ?? ''),
+      customerPhone: (r.customerPhone ?? fallback?.customerPhone) as string | undefined,
+      customerImage: (r.customerImage ?? fallback?.customerImage) as string | undefined,
+      service: String(r.service ?? r.serviceName ?? fallback?.service ?? ''),
+      time: String(r.time ?? r.startTime ?? fallback?.time ?? ''),
+      duration: String(r.duration ?? fallback?.duration ?? ''),
+      status: mapStatus(apiStatus) || apiStatus,
+      date: dateStr || fallback?.date,
+      specialist: (r.specialist ?? fallback?.specialist) as string | undefined,
+    };
   }
 
   /** Normalize backend attendance shape (date, status present/حاضر) */
@@ -749,6 +753,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       'إجازة': 'on-leave',
     };
     return statusMap[status] || status;
+  };
+
+  /** Map appointment status to backend enum (API: pending | confirmed | completed | cancelled | no-show; Arabic: معلق, مؤكد, منتهي, ملغي) */
+  const mapAppointmentStatusToApi = (status: string): string => {
+    const s = (status ?? '').trim();
+    const arabicToApi: Record<string, string> = {
+      'معلق': 'pending',
+      'مؤكد': 'confirmed',
+      'مكتمل': 'completed',
+      'منتهي': 'completed',
+      'ملغي': 'cancelled',
+      'لم يحضر': 'no-show',
+    };
+    if (arabicToApi[s]) return arabicToApi[s];
+    const lower = s.toLowerCase();
+    if (['pending', 'confirmed', 'completed', 'cancelled', 'no-show'].includes(lower)) return lower;
+    return 'pending';
   };
 
   /** Map sale status to backend enum (API: completed | pending | cancelled; Arabic: مكتمل, قيد الانتظار, ملغي) */
@@ -929,9 +950,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         totalSpent: customer.spending ?? 0,
         isActive: true,
       });
-      const raw = unwrapData<{ id: string; name: string; phone: string; email?: string; totalVisits?: number; totalSpent?: number }>(res) ?? res as Record<string, unknown>;
+      const raw = unwrapData<{ id?: string; _id?: string; name: string; phone: string; email?: string; totalVisits?: number; totalSpent?: number }>(res) ?? res as Record<string, unknown>;
       const newCustomer: Customer = {
-        id: String(raw?.id ?? Date.now()),
+        id: String(raw?.id ?? (raw as Record<string, unknown>)?._id ?? Date.now()),
         name: String(raw?.name ?? customer.name),
         email: String(raw?.email ?? customer.email ?? ''),
         phone: String(raw?.phone ?? customer.phone),
@@ -960,8 +981,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateCustomer = async (id: string, customer: Partial<Customer>) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف العميل غير صالح');
+      return;
+    }
     try {
-      await customerService.update(id, {
+      await customerService.update(normalizedId, {
         name: customer.name,
         phone: customer.phone,
         email: customer.email,
@@ -969,7 +995,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         totalSpent: customer.spending,
       });
       setCustomers((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, ...customer } : c))
+        prev.map((c) => (c.id === normalizedId ? { ...c, ...customer } : c))
       );
       toast.success('تم تحديث العميل بنجاح');
     } catch (error: unknown) {
@@ -1017,12 +1043,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   };
 
-  // Appointments functions - Frontend Only
+  // Appointments functions - integrated with API
   const addAppointment = async (appointment: Omit<Appointment, 'id'>) => {
-    // Find customer by phone or create new one
-    let existingCustomer = customers.find(c => c.phone === appointment.customerPhone);
-    
-    if (!existingCustomer && appointment.customer && appointment.customerPhone && appointment.customer !== 'عميل نقدي') {
+    let existingCustomer = customers.find((c) => c.phone === appointment.customerPhone);
+
+    if (
+      !existingCustomer &&
+      appointment.customer &&
+      appointment.customerPhone &&
+      appointment.customer !== 'عميل نقدي'
+    ) {
       try {
         existingCustomer = await addCustomer({
           name: appointment.customer,
@@ -1034,37 +1064,94 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const newAppointment = {
-      ...appointment,
-      id: Date.now().toString(),
-    };
-    
-    setAppointments([...appointments, newAppointment]);
-    addNotification({
-      title: 'موعد جديد',
-      message: `تم حجز موعد جديد لـ "${appointment.customer}"`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('م إضافة الموعد بنجاح');
+    const dateStr =
+      typeof appointment.date === 'string' && appointment.date.includes('T')
+        ? appointment.date.split('T')[0]
+        : (appointment.date ?? '');
+
+    try {
+      const created = await appointmentService.createAppointment({
+        customer: appointment.customer,
+        customerPhone: appointment.customerPhone,
+        service: appointment.service,
+        time: appointment.time,
+        duration: appointment.duration,
+        status: mapAppointmentStatusToApi(appointment.status),
+        date: dateStr,
+        specialist: appointment.specialist,
+      });
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const newAppointment = mapBackendAppointmentToContext(raw, appointment);
+      setAppointments((prev) => [...prev, newAppointment]);
+      addNotification({
+        title: 'موعد جديد',
+        message: `تم حجز موعد جديد لـ "${appointment.customer}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم إضافة الموعد بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة الموعد');
+      throw error;
+    }
   };
 
   const updateAppointment = async (id: string, appointment: Partial<Appointment>) => {
-    setAppointments(
-      appointments.map((a) => (a.id === id ? { ...a, ...appointment } : a))
-    );
-    toast.success('تم تحديث الموعد بنجاح');
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الموعد غير صالح');
+      return;
+    }
+    try {
+      const payload: Record<string, unknown> = {};
+      if (appointment.customer != null) payload.customer = appointment.customer;
+      if (appointment.customerPhone != null) payload.customerPhone = appointment.customerPhone;
+      if (appointment.service != null) payload.service = appointment.service;
+      if (appointment.time != null) payload.time = appointment.time;
+      if (appointment.duration != null) payload.duration = appointment.duration;
+      if (appointment.status != null) payload.status = mapAppointmentStatusToApi(appointment.status);
+      if (appointment.date != null) {
+        payload.date =
+          typeof appointment.date === 'string' && appointment.date.includes('T')
+            ? appointment.date.split('T')[0]
+            : appointment.date;
+      }
+      if (appointment.specialist != null) payload.specialist = appointment.specialist;
+
+      await appointmentService.updateAppointment(normalizedId, payload);
+      setAppointments((prev) =>
+        prev.map((a) => (a.id === normalizedId ? { ...a, ...appointment } : a))
+      );
+      toast.success('تم تحديث الموعد بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث الموعد');
+      throw error;
+    }
   };
 
   const deleteAppointment = async (id: string) => {
-    setAppointments(appointments.filter((a) => a.id !== id));
-    addNotification({
-      title: 'تم حذف الموعد',
-      message: 'تم حذف الموعد بنجاح',
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم حذف الموعد بنجاح');
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف الموعد غير صالح');
+      return;
+    }
+    try {
+      await appointmentService.deleteAppointment(normalizedId);
+      setAppointments((prev) => prev.filter((a) => a.id !== normalizedId));
+      addNotification({
+        title: 'تم حذف الموعد',
+        message: 'تم حذف الموعد بنجاح',
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم حذف الموعد بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء حذف الموعد');
+      throw error;
+    }
   };
 
   // Normalize phone for comparison (trim, optional strip non-digits)
@@ -1145,7 +1232,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast.success('تم إضافة عملية البيع بنجاح');
     } catch (error: unknown) {
       const msg = getApiErrorMessage(error);
-      toast.error(msg || 'حدث خطأ أثناء إضافة عملية البيع');
+      if (msg !== 'المورد غير موجود') {
+        toast.error(msg || 'حدث خطأ أثناء إضافة عملية البيع');
+      }
       throw error;
     }
   };
