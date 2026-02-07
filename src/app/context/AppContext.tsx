@@ -343,9 +343,10 @@ interface AppContextType {
   
   // Attendance
   attendanceRecords: AttendanceRecord[];
+  fetchAttendance: (params?: { date?: string; employeeId?: string; status?: string }) => Promise<void>;
   addAttendanceRecord: (record: Omit<AttendanceRecord, 'id'>) => Promise<void>;
   updateAttendanceRecord: (id: string, record: Partial<AttendanceRecord>) => Promise<void>;
-  deleteAttendanceRecord: (id: string) => void;
+  deleteAttendanceRecord: (id: string) => Promise<void>;
   
   // Specialists
   specialists: Specialist[];
@@ -912,7 +913,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
   }
 
-  /** Normalize backend attendance shape (date, status present/حاضر) */
+  /** Backend schema status enum: حاضر, غائب, تأخير, إجازة, present, absent, delay, leave. Map API -> UI (English to Arabic). */
+  function mapAttendanceStatusFromApi(status: string): string {
+    const m: Record<string, string> = { present: 'حاضر', absent: 'غائب', delay: 'تأخير', leave: 'إجازة' };
+    return m[status] ?? status;
+  }
+
+  /** Map UI to backend enum only (legacy متأخر/نصف يوم -> backend value). */
+  function mapAttendanceStatusToApi(status: string): string {
+    const m: Record<string, string> = { متأخر: 'تأخير', 'نصف يوم': 'إجازة' };
+    return m[status] ?? status;
+  }
+
+  /** Normalize backend attendance shape to match Mongoose schema (date, workHours number, status enum). */
   function mapBackendAttendanceToContext(list: unknown[]): AttendanceRecord[] {
     return list.map((a) => {
       const r = a as Record<string, unknown>;
@@ -923,6 +936,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             ? dateRaw.split('T')[0]
             : dateRaw
           : String(dateRaw ?? '');
+      const statusRaw = String(r.status ?? 'حاضر');
       return {
         id: String(r.id ?? r._id ?? ''),
         employeeId: String(r.employeeId ?? ''),
@@ -931,11 +945,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         position: String(r.position ?? ''),
         checkIn: String(r.checkIn ?? r.checkInTime ?? ''),
         checkOut: String(r.checkOut ?? r.checkOutTime ?? ''),
-        workHours: r.workHours as string | number | undefined,
-        status: String(r.status ?? ''),
+        workHours: typeof r.workHours === 'number' ? r.workHours : (r.workHours as string | undefined),
+        status: mapAttendanceStatusFromApi(statusRaw),
         date: dateStr,
         image: r.image as string | undefined,
-        advance: r.advance as number | undefined,
+        advance: Number(r.advance) || 0,
         day: r.day as string | undefined,
         notes: r.notes as string | undefined,
       };
@@ -1561,31 +1575,88 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // The backend will handle this automatically when a sale is created
   };
 
-  // Attendance functions - add via API (createManualAttendance), update/delete local (no API)
+  // Fetch attendance from GET /api/attendance (real time from endpoint)
+  const fetchAttendance = useCallback(
+    async (params?: { date?: string; employeeId?: string; status?: string }) => {
+      if (!authService.isAuthenticated()) return;
+      try {
+        const res = await attendanceService.getAllAttendance(params);
+        const list = unwrapList(res);
+        setAttendanceRecords(mapBackendAttendanceToContext(list));
+      } catch (error) {
+        console.error('Error fetching attendance:', error);
+      }
+    },
+    []
+  );
+
+  // Backend expects workHours as Number (decimal hours). Convert string "H:MM" to number.
+  function toWorkHoursNumber(val: string | number | undefined): number | undefined {
+    if (val == null || val === '') return undefined;
+    if (typeof val === 'number' && !Number.isNaN(val)) return val;
+    const s = String(val).trim();
+    if (!s) return undefined;
+    const parts = s.split(':');
+    if (parts.length >= 2) {
+      const h = Number(parts[0]) || 0;
+      const m = Number(parts[1]) || 0;
+      return h + m / 60;
+    }
+    const n = Number(s);
+    return Number.isNaN(n) ? undefined : n;
+  }
+
+  // Attendance functions - add/update/delete via API (POST/PUT/DELETE /api/attendance)
   const addAttendanceRecord = async (record: Omit<AttendanceRecord, 'id'>) => {
     const dateStr =
       typeof record.date === 'string' && record.date.includes('T')
         ? record.date.split('T')[0]
         : (record.date ?? '');
     try {
-      const created = await attendanceService.createManualAttendance({
+      const workHoursNum = toWorkHoursNumber(record.workHours) ?? 0;
+      const payload = {
         employeeId: record.employeeId,
-        employeeName: record.employeeName ?? record.name,
-        position: record.position,
-        checkIn: record.checkIn,
-        checkOut: record.checkOut ?? '',
+        employeeName: String(record.employeeName ?? record.name ?? ''),
+        name: record.name ?? record.employeeName ?? '',
+        position: String(record.position ?? ''),
+        checkIn: String(record.checkIn ?? ''),
+        checkOut: String(record.checkOut ?? ''),
+        workHours: workHoursNum,
+        status: mapAttendanceStatusToApi(record.status ?? 'حاضر'),
         date: dateStr,
-        advance: record.advance,
-        notes: record.notes,
-      });
+        image: record.image ?? '',
+        advance: Number(record.advance) || 0,
+        day: record.day ?? '',
+        notes: record.notes ?? '',
+      };
+      const created = await attendanceService.createAttendance(payload);
       const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
-      const newRecord = mapBackendAttendanceToContext([raw])[0];
+      const newRecord = raw ? mapBackendAttendanceToContext([raw])[0] : null;
       if (newRecord && newRecord.id) {
         setAttendanceRecords((prev) => [...prev, newRecord]);
+      } else if (raw) {
+        const id = String(raw.id ?? raw._id ?? Date.now());
+        setAttendanceRecords((prev) => [
+          ...prev,
+          {
+            id,
+            employeeId: record.employeeId,
+            employeeName: record.employeeName ?? record.name ?? '',
+            name: record.name ?? record.employeeName ?? '',
+            position: record.position ?? '',
+            checkIn: record.checkIn ?? '',
+            checkOut: record.checkOut ?? '',
+            workHours: toWorkHoursNumber(record.workHours) ?? 0,
+            status: record.status ?? 'حاضر',
+            date: dateStr,
+            advance: Number(record.advance) || 0,
+            notes: record.notes ?? '',
+          },
+        ]);
       }
       addNotification({
         title: 'تسجيل حضور',
-        message: `تم تسجيل حضور "${record.name}"`,
+        message: `تم تسجيل حضور "${record.name ?? record.employeeName}"`,
         time: 'الآن',
         read: false,
       });
@@ -1598,22 +1669,66 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const updateAttendanceRecord = async (id: string, record: Partial<AttendanceRecord>) => {
-    setAttendanceRecords((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, ...record } : r))
-    );
-    toast.success('تم تحديث سجل الحضور بنجاح');
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف سجل الحضور غير صالح');
+      return;
+    }
+    try {
+      const payload: Record<string, unknown> = {};
+      if (record.employeeId != null) payload.employeeId = record.employeeId;
+      if (record.employeeName != null) payload.employeeName = record.employeeName;
+      if (record.name != null) payload.name = record.name;
+      if (record.position != null) payload.position = record.position;
+      if (record.checkIn != null) payload.checkIn = record.checkIn;
+      if (record.checkOut != null) payload.checkOut = record.checkOut;
+      if (record.date != null) payload.date = record.date;
+      if (record.status != null) payload.status = mapAttendanceStatusToApi(record.status);
+      if (record.notes != null) payload.notes = record.notes;
+      if (record.advance != null) payload.advance = Number(record.advance) || 0;
+      const workHoursNum = toWorkHoursNumber(record.workHours);
+      if (workHoursNum !== undefined) payload.workHours = workHoursNum;
+
+      await attendanceService.updateAttendance(normalizedId, payload);
+      setAttendanceRecords((prev) =>
+        prev.map((r) => (r.id === normalizedId ? { ...r, ...record } : r))
+      );
+      addNotification({
+        title: 'تحديث سجل حضور',
+        message: 'تم تحديث سجل الحضور',
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم تحديث سجل الحضور بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث سجل الحضور');
+      throw error;
+    }
   };
 
-  const deleteAttendanceRecord = (id: string) => {
-    const record = attendanceRecords.find((r) => r.id === id);
-    setAttendanceRecords((prev) => prev.filter((r) => r.id !== id));
-    addNotification({
-      title: 'حذف سجل حضور',
-      message: `تم حذف سجل حضور "${record?.name}"`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم حذف سجل الحضور بنجاح');
+  const deleteAttendanceRecord = async (id: string) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف سجل الحضور غير صالح');
+      return;
+    }
+    try {
+      const record = attendanceRecords.find((r) => r.id === normalizedId);
+      await attendanceService.deleteAttendance(normalizedId);
+      setAttendanceRecords((prev) => prev.filter((r) => r.id !== normalizedId));
+      addNotification({
+        title: 'حذف سجل حضور',
+        message: `تم حذف سجل حضور "${record?.name ?? record?.employeeName}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم حذف سجل الحضور بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء حذف سجل الحضور');
+      throw error;
+    }
   };
 
   // Specialists functions (Local only - no backend yet)
@@ -2372,6 +2487,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     deleteInventoryItem,
     decreaseInventoryStock,
     attendanceRecords,
+    fetchAttendance,
     addAttendanceRecord,
     updateAttendanceRecord,
     deleteAttendanceRecord,

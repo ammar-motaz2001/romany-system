@@ -76,6 +76,9 @@ export const API_ENDPOINTS = {
     CHECK_OUT: (id: string) => `/attendance/check-out/${id}`,
     ADD_ADVANCE: (id: string) => `/attendance/${id}/advance`,
     CREATE_MANUAL: '/attendance/manual',
+    CREATE: '/attendance',
+    UPDATE: (id: string) => `/attendance/${id}`,
+    DELETE: (id: string) => `/attendance/${id}`,
   },
 
   // Expenses

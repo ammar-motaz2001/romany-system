@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Download, Plus, Edit, Filter, Trash2, Clock, CheckCircle, XCircle, AlertCircle, X } from 'lucide-react';
 import { Card } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
@@ -8,9 +8,30 @@ import { useApp } from '@/app/context/AppContext';
 import { generateTablePDF } from '@/utils/pdfExportArabic';
 import { toast } from 'sonner';
 
+/** Status options — backend enum only: حاضر, غائب, تأخير, إجازة (no extra values) */
+const ATTENDANCE_STATUS_OPTIONS = [
+  { value: 'حاضر', label: 'حاضر' },
+  { value: 'غائب', label: 'غائب' },
+  { value: 'تأخير', label: 'تأخير' },
+  { value: 'إجازة', label: 'إجازة' },
+] as const;
+
 export default function AttendancePage() {
-  const { employees, attendanceRecords, addAttendanceRecord, updateAttendanceRecord, deleteAttendanceRecord, systemSettings } = useApp();
+  const {
+    employees,
+    attendanceRecords,
+    fetchAttendance,
+    addAttendanceRecord,
+    updateAttendanceRecord,
+    deleteAttendanceRecord,
+    systemSettings,
+  } = useApp();
   const [showAddDialog, setShowAddDialog] = useState(false);
+
+  // Load attendance from GET /api/attendance when الحضور page is opened (real time from endpoint)
+  useEffect(() => {
+    fetchAttendance();
+  }, [fetchAttendance]);
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [filterStatus, setFilterStatus] = useState('الكل');
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,10 +57,21 @@ export default function AttendancePage() {
     return matchesStatus && matchesSearch && matchesDate;
   });
 
+  // Format workHours for display: number (decimal hours) -> "H:MM", or keep string as-is
+  const formatWorkHoursDisplay = (val: string | number | undefined): string => {
+    if (val == null || val === '') return '-';
+    if (typeof val === 'number') {
+      const h = Math.floor(val);
+      const m = Math.round((val - h) * 60);
+      return `${h}:${String(m).padStart(2, '0')}`;
+    }
+    return String(val);
+  };
+
   // Today's statistics
   const todayRecords = attendanceRecords.filter(r => r.date === selectedDate);
-  const presentCount = todayRecords.filter(r => r.status === 'حاضر' || r.status === 'متأخر').length;
-  const lateCount = todayRecords.filter(r => r.status === 'متأخر').length;
+  const presentCount = todayRecords.filter(r => r.status === 'حاضر' || r.status === 'تأخير').length;
+  const lateCount = todayRecords.filter(r => r.status === 'تأخير').length;
   const absentCount = todayRecords.filter(r => r.status === 'غائب').length;
   const leaveCount = todayRecords.filter(r => r.status === 'إجازة').length;
 
@@ -100,15 +132,13 @@ export default function AttendancePage() {
       return;
     }
 
-    // Calculate work hours if both check-in and check-out are provided
-    let workHours = '';
+    // Backend expects workHours as Number (decimal hours). Compute from checkIn/checkOut.
+    let workHoursNum: number | undefined;
     if (formData.checkIn && formData.checkOut) {
-      const checkInTime = new Date(`2000-01-01 ${formData.checkIn}`);
-      const checkOutTime = new Date(`2000-01-01 ${formData.checkOut}`);
-      const diff = checkOutTime.getTime() - checkInTime.getTime();
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      workHours = `${hours}:${minutes.toString().padStart(2, '0')}`;
+      const checkInTime = new Date(`2000-01-01T${formData.checkIn}`);
+      const checkOutTime = new Date(`2000-01-01T${formData.checkOut}`);
+      const diffMs = checkOutTime.getTime() - checkInTime.getTime();
+      workHoursNum = diffMs / (1000 * 60 * 60); // decimal hours
     }
 
     const recordData = {
@@ -119,17 +149,15 @@ export default function AttendancePage() {
       date: formData.date,
       checkIn: formData.checkIn,
       checkOut: formData.checkOut,
-      workHours,
+      workHours: workHoursNum,
       status: formData.status,
       notes: formData.notes,
     };
 
     if (editingRecord) {
       updateAttendanceRecord(editingRecord.id, recordData);
-      toast.success('تم تحديث سجل الحضور بنجاح');
     } else {
       addAttendanceRecord(recordData);
-      toast.success('تم إضافة سجل الحضور بنجاح');
     }
 
     handleCloseDialog();
@@ -237,11 +265,9 @@ export default function AttendancePage() {
                   onChange={(e) => setFilterStatus(e.target.value)}
                 >
                   <option value="الكل">جميع الحالات</option>
-                  <option value="حاضر">حاضر</option>
-                  <option value="متأخر">متأخر</option>
-                  <option value="غائب">غائب</option>
-                  <option value="إجازة">إجازة</option>
-                  <option value="نصف يوم">نصف يوم</option>
+                  {ATTENDANCE_STATUS_OPTIONS.map(({ value, label }) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -307,17 +333,19 @@ export default function AttendancePage() {
                       <td className="p-3 text-gray-600">{record.position}</td>
                       <td className="p-3 font-mono text-sm">{record.checkIn || '-'}</td>
                       <td className="p-3 font-mono text-sm">{record.checkOut || '-'}</td>
-                      <td className="p-3 font-medium">{record.workHours || '-'}</td>
+                      <td className="p-3 font-medium">{formatWorkHoursDisplay(record.workHours)}</td>
                       <td className="p-3">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-medium ${
                             record.status === 'حاضر'
                               ? 'bg-green-100 text-green-700'
-                              : record.status === 'متأخر'
+                              : record.status === 'تأخير'
                               ? 'bg-orange-100 text-orange-700'
                               : record.status === 'غائب'
                               ? 'bg-red-100 text-red-700'
-                              : 'bg-blue-100 text-blue-700'
+                              : record.status === 'إجازة'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-gray-100 text-gray-700'
                           }`}
                         >
                           {record.status}
@@ -399,7 +427,7 @@ export default function AttendancePage() {
                   />
                 </div>
 
-                {/* Status */}
+                {/* Status (الحالة *) — same options as filter dropdown */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     الحالة <span className="text-red-500">*</span>
@@ -410,18 +438,16 @@ export default function AttendancePage() {
                     onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                     required
                   >
-                    <option value="حاضر">حاضر</option>
-                    <option value="متأخر">متأخر</option>
-                    <option value="غائب">غائب</option>
-                    <option value="إجازة">إجازة</option>
-                    <option value="نصف يوم">نصف يوم</option>
+                    {ATTENDANCE_STATUS_OPTIONS.map(({ value, label }) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
                   </select>
                 </div>
 
-                {/* Check In Time */}
+                {/* Check In Time (optional — e.g. غائب has no times) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    وقت الحضور
+                    وقت الدخول
                   </label>
                   <Input
                     type="time"
@@ -430,7 +456,7 @@ export default function AttendancePage() {
                   />
                 </div>
 
-                {/* Check Out Time */}
+                {/* Check Out Time (optional) */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     وقت الانصراف
