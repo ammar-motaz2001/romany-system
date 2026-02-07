@@ -58,7 +58,8 @@ export default function POSPage() {
   const [quickCustomerName, setQuickCustomerName] = useState('');
   const [quickCustomerPhone, setQuickCustomerPhone] = useState('');
   const [quickCustomerEmail, setQuickCustomerEmail] = useState('');
-  
+  const [isAddingCustomer, setIsAddingCustomer] = useState(false);
+
   // Discount
   const [discount, setDiscount] = useState('0');
   
@@ -91,25 +92,32 @@ export default function POSPage() {
     setCustomerPhone('0000000000');
   };
 
-  const handleQuickAddCustomer = () => {
-    if (!quickCustomerName || !quickCustomerPhone) {
+  const handleQuickAddCustomer = async () => {
+    if (!quickCustomerName?.trim() || !quickCustomerPhone?.trim()) {
       toast.error('يرجى إدخال الاسم ورقم الهاتف على الأقل');
       return;
     }
 
-    const newCustomer = addCustomer({
-      name: quickCustomerName,
-      email: quickCustomerEmail || `${quickCustomerPhone}@temp.com`,
-      phone: quickCustomerPhone,
-      vip: false,
-    });
+    setIsAddingCustomer(true);
+    try {
+      const newCustomer = await addCustomer({
+        name: quickCustomerName.trim(),
+        email: quickCustomerEmail?.trim() || `${quickCustomerPhone}@temp.com`,
+        phone: quickCustomerPhone.trim(),
+        vip: false,
+      });
 
-    handleSelectCustomer(newCustomer);
-    setShowQuickAddCustomer(false);
-    setQuickCustomerName('');
-    setQuickCustomerPhone('');
-    setQuickCustomerEmail('');
-    toast.success('تم إضافة العميل بنجاح! ✅');
+      handleSelectCustomer(newCustomer);
+      setShowQuickAddCustomer(false);
+      setQuickCustomerName('');
+      setQuickCustomerPhone('');
+      setQuickCustomerEmail('');
+      toast.success('تم إضافة العميل بنجاح! ✅');
+    } catch {
+      // Error already shown by addCustomer
+    } finally {
+      setIsAddingCustomer(false);
+    }
   };
 
   // Filter customers based on search
@@ -1621,9 +1629,10 @@ export default function POSPage() {
               <Button
                 className="flex-1 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white"
                 onClick={handleQuickAddCustomer}
+                disabled={isAddingCustomer}
               >
                 <Plus className="ml-2 w-4 h-4" />
-                إضافة العميل
+                {isAddingCustomer ? 'جاري الإضافة...' : 'إضافة العميل'}
               </Button>
             </div>
           </Card>

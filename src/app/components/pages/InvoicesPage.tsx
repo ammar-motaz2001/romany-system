@@ -521,7 +521,7 @@ export default function InvoicesPage() {
       'مكتمل': { variant: 'default', label: 'مكتمل' },
       'completed': { variant: 'default', label: 'مكتمل' },
       'معلق': { variant: 'secondary', label: 'معلق' },
-      'pending': { variant: 'secondary', label: '��علق' },
+      'pending': { variant: 'secondary', label: 'معلق' },
       'ملغي': { variant: 'destructive', label: 'ملغي' },
       'cancelled': { variant: 'destructive', label: 'ملغي' },
     };
