@@ -37,6 +37,22 @@ function unwrapData<T>(res: unknown): T | null {
   return data !== undefined ? (data as T) : (res as T);
 }
 
+/** Extract error message from API error. Handles { success, error } or stringified JSON. */
+function getApiErrorMessage(error: unknown): string {
+  const data = (error as { response?: { data?: unknown } })?.response?.data;
+  if (data == null) return '';
+  if (typeof data === 'string') {
+    try {
+      const parsed = JSON.parse(data) as { error?: string; message?: string };
+      return String(parsed?.error ?? parsed?.message ?? '');
+    } catch {
+      return data;
+    }
+  }
+  const obj = data as Record<string, unknown>;
+  return String(obj?.error ?? obj?.message ?? '');
+}
+
 /** Map auth API user to AppContext User shape (used after User interface is defined) */
 function mapAuthUserToContextUser(u: Record<string, unknown>): User {
   return {
@@ -917,8 +933,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       toast.success('تم إضافة العميل بنجاح');
       return newCustomer;
     } catch (error: unknown) {
-      const msg = String((error as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '');
-      const isAlreadyRegistered = /مسجل|already|exists|موجود|مُسَجّل|phone/i.test(msg);
+      const msg = getApiErrorMessage(error);
+      const isAlreadyRegistered = /مسجل|already|exists|موجود|مُسَجّل|رقم الهاتف/i.test(msg);
       if (!isAlreadyRegistered) {
         toast.error(msg || 'حدث خطأ أثناء إضافة العميل');
       }
@@ -1052,9 +1068,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         customerId = newCustomer.id;
       } catch (error: unknown) {
-        const msg = String((error as { response?: { data?: { error?: string } } })?.response?.data?.error ?? '');
-        const isAlreadyRegistered =
-          /مسجل|already|exists|موجود|مُسَجّل/i.test(msg) || msg.includes('phone');
+        const msg = getApiErrorMessage(error);
+        const isAlreadyRegistered = /مسجل|already|exists|موجود|مُسَجّل|رقم الهاتف/i.test(msg);
         if (isAlreadyRegistered) {
           try {
             const listRes = await customerService.getAll();
@@ -1112,8 +1127,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
       toast.success('تم إضافة عملية البيع بنجاح');
     } catch (error: unknown) {
-      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
-      toast.error(msg ?? 'حدث خطأ أثناء إضافة عملية البيع');
+      const msg = getApiErrorMessage(error);
+      toast.error(msg || 'حدث خطأ أثناء إضافة عملية البيع');
       throw error;
     }
   };
