@@ -3,20 +3,42 @@ import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
+/** SPA fallback: serve index.html for routes so refresh on /dashboard, /employees, etc. works (dev + preview) */
+function spaFallbackPlugin() {
+  const fallbackMiddleware = (req: { url?: string; method?: string }, _res: unknown, next: () => void) => {
+    if (req.method !== 'GET') return next()
+    const pathname = req.url?.split('?')[0] ?? ''
+    const isAsset = pathname.startsWith('/@') || pathname.startsWith('/node_modules') ||
+      pathname.startsWith('/src') || pathname.startsWith('/assets') || pathname.includes('.') || pathname === '/vite.svg'
+    if (pathname !== '/' && pathname !== '/index.html' && !isAsset) {
+      req.url = '/index.html'
+    }
+    next()
+  }
+  return {
+    name: 'spa-fallback',
+    configureServer(server: { middlewares: { use: (fn: (req: any, res: any, next: () => void) => void) => void } }) {
+      server.middlewares.use(fallbackMiddleware)
+    },
+    configurePreviewServer(server: { middlewares: { use: (fn: (req: any, res: any, next: () => void) => void) => void } }) {
+      server.middlewares.use(fallbackMiddleware)
+    },
+  }
+}
+
 export default defineConfig({
   plugins: [
-    // The React and Tailwind plugins are both required for Make, even if
-    // Tailwind is not being actively used – do not remove them
     react(),
     tailwindcss(),
+    spaFallbackPlugin(),
   ],
   resolve: {
     alias: {
-      // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
     },
   },
+  base: '/',
+  server: { strictPort: false },
 
-  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
