@@ -7,6 +7,8 @@ import { Switch } from '@/app/components/ui/switch';
 import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
 import { useTranslation } from '@/app/hooks/useTranslation';
+import { toast } from 'sonner';
+import { authService } from '@/services/auth.service';
 
 type SettingsTab = 'profile' | 'notifications' | 'security' | 'billing' | 'system' | 'users';
 
@@ -65,16 +67,18 @@ export default function SettingsPage() {
       customers: true,
       appointments: true,
       inventory: false,
-      services: false,
+      services: true,
       expenses: false,
-      shifts: false,
+      shifts: true,
       employees: false,
       attendance: false,
       payroll: false,
       reports: false,
+      suppliers: false,
       settings: false,
     },
   });
+  const [userFormLoading, setUserFormLoading] = useState(false);
 
   const isAdmin = currentUser?.role === 'admin';
 
@@ -116,27 +120,40 @@ export default function SettingsPage() {
     alert('تم حفظ إعدادات الإشعارات بنجاح!');
   };
 
-  const handleUpdatePassword = () => {
+  const [passwordLoading, setPasswordLoading] = useState(false);
+
+  const handleUpdatePassword = async () => {
     if (securityForm.newPassword !== securityForm.confirmPassword) {
-      alert('كلمة المرور غير متطابقة!');
+      toast.error('كلمة المرور الجديدة وتأكيدها غير متطابقين');
       return;
     }
-    if (securityForm.newPassword.length < 6) {
-      alert('كلمة المرور يجب أن تكون 6 أحرف على الأقل!');
+    if (!securityForm.newPassword || securityForm.newPassword.trim().length < 5) {
+      toast.error('كلمة المرور الجديدة مطلوبة (5 أحرف على الأقل)');
       return;
     }
-    
-    updateCurrentUser({
-      password: securityForm.newPassword,
-    });
-    
-    setSecurityForm({
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: '',
-    });
-    
-    alert('تم تحديث كلمة المرور بنجاح!');
+    if (!currentUser?.id) {
+      toast.error('لم يتم التعرف على المستخدم');
+      return;
+    }
+    if (!securityForm.currentPassword?.trim()) {
+      toast.error('كلمة المرور الحالية مطلوبة لتغيير كلمة المرور');
+      return;
+    }
+    try {
+      setPasswordLoading(true);
+      await authService.changePassword(currentUser.id, {
+        newPassword: securityForm.newPassword,
+        currentPassword: securityForm.currentPassword,
+      });
+      setSecurityForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      toast.success('تم تحديث كلمة المرور بنجاح');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { error?: string } } };
+      const msg = err.response?.data?.error ?? 'حدث خطأ أثناء تغيير كلمة المرور';
+      toast.error(msg);
+    } finally {
+      setPasswordLoading(false);
+    }
   };
 
   const handleSaveSystemSettings = () => {
@@ -144,43 +161,86 @@ export default function SettingsPage() {
     alert('تم حفظ إعدادات النظام بنجاح!');
   };
 
-  const handleAddUser = () => {
-    if (!userForm.username || !userForm.password) {
-      alert('يرجى إدخال اسم المستخدم وكلمة المرور!');
+  const handleAddUser = async () => {
+    if (!userForm.username?.trim()) {
+      toast.error('اسم المستخدم مطلوب');
+      return;
+    }
+    if (!userForm.password && !editingUser) {
+      toast.error('كلمة المرور مطلوبة');
+      return;
+    }
+    if (userForm.password && userForm.password.length < 5) {
+      toast.error('كلمة المرور يجب أن تكون 5 أحرف على الأقل');
+      return;
+    }
+    if (!userForm.name?.trim()) {
+      toast.error('الاسم مطلوب');
+      return;
+    }
+    if (!userForm.email?.trim()) {
+      toast.error('البريد الإلكتروني مطلوب');
+      return;
+    }
+    if (!userForm.phone?.trim()) {
+      toast.error('رقم الهاتف مطلوب');
       return;
     }
 
+    const permissions = userForm.role === 'admin'
+      ? {
+          dashboard: true,
+          sales: true,
+          invoices: true,
+          customers: true,
+          appointments: true,
+          inventory: true,
+          services: true,
+          expenses: true,
+          shifts: true,
+          employees: true,
+          attendance: true,
+          payroll: true,
+          reports: true,
+          suppliers: true,
+          settings: true,
+        }
+      : { ...userForm.permissions, suppliers: userForm.permissions.suppliers ?? false };
+
     const newUser = {
       ...userForm,
-      // Use custom permissions from the form
-      permissions: userForm.role === 'admin' ? {
-        services: true,
-        sales: true,
-        appointments: true,
-        inventory: true,
-        attendance: true,
-        reports: true,
-        customers: true,
-        expenses: true,
-        settings: true,
-        dashboard: true,
-      } : userForm.permissions, // Use the permissions set by the admin for cashiers
-      notificationSettings: {
-        appointments: true,
-        inventory: false,
-        reports: false,
-        payments: true,
-      },
+      permissions,
     };
 
     if (editingUser) {
-      updateUser(editingUser.id, newUser);
-    } else {
-      addUser(newUser);
+      try {
+        setUserFormLoading(true);
+        await updateUser(editingUser.id, newUser);
+        setShowAddUserDialog(false);
+        setEditingUser(null);
+        resetUserForm();
+      } catch {
+        // Error already shown by context
+      } finally {
+        setUserFormLoading(false);
+      }
+      return;
     }
 
-    setShowAddUserDialog(false);
-    setEditingUser(null);
+    try {
+      setUserFormLoading(true);
+      await addUser(newUser);
+      setShowAddUserDialog(false);
+      setEditingUser(null);
+      resetUserForm();
+    } catch {
+      // Error already shown by context
+    } finally {
+      setUserFormLoading(false);
+    }
+  };
+
+  const resetUserForm = () => {
     setUserForm({
       username: '',
       password: '',
@@ -191,16 +251,21 @@ export default function SettingsPage() {
       image: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=100',
       position: '',
       permissions: {
-        services: false,
+        dashboard: true,
         sales: true,
+        invoices: true,
+        customers: true,
         appointments: true,
         inventory: false,
-        attendance: false,
-        reports: false,
-        customers: true,
+        services: true,
         expenses: false,
+        shifts: true,
+        employees: false,
+        attendance: false,
+        payroll: false,
+        reports: false,
+        suppliers: false,
         settings: false,
-        dashboard: false,
       },
     });
   };
@@ -221,9 +286,12 @@ export default function SettingsPage() {
     setShowAddUserDialog(true);
   };
 
-  const handleDeleteUser = (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا المستخدم؟')) {
-      deleteUser(id);
+  const handleDeleteUser = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذا المستخدم؟')) return;
+    try {
+      await deleteUser(id);
+    } catch {
+      // Error already shown by context (e.g. لا يمكنك حذف حسابك الخاص)
     }
   };
 
@@ -481,8 +549,9 @@ export default function SettingsPage() {
                 <Button 
                   className="bg-gradient-to-r from-pink-500 to-purple-600 text-white mt-6"
                   onClick={handleUpdatePassword}
+                  disabled={passwordLoading}
                 >
-                  تحديث كلمة المرور
+                  {passwordLoading ? 'جاري التحديث...' : 'تحديث كلمة المرور'}
                 </Button>
               </Card>
             )}
@@ -1020,6 +1089,19 @@ export default function SettingsPage() {
                     </div>
 
                     <div className="flex items-center justify-between">
+                      <label className="text-sm text-gray-700">🚚 التجار وفواتير الشراء</label>
+                      <Switch
+                        checked={userForm.permissions.suppliers}
+                        onCheckedChange={(checked) =>
+                          setUserForm({
+                            ...userForm,
+                            permissions: { ...userForm.permissions, suppliers: checked }
+                          })
+                        }
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between">
                       <label className="text-sm text-gray-700">⚙️ الإعدادات</label>
                       <Switch
                         checked={userForm.permissions.settings}
@@ -1040,8 +1122,9 @@ export default function SettingsPage() {
               <Button
                 className="flex-1 bg-gradient-to-r from-pink-500 to-purple-600 text-white"
                 onClick={handleAddUser}
+                disabled={userFormLoading}
               >
-                {editingUser ? 'حفظ التعديلات' : 'إضافة المستخدم'}
+                {userFormLoading ? 'جاري الإضافة...' : (editingUser ? 'حفظ التعديلات' : 'إضافة المستخدم')}
               </Button>
               <Button
                 variant="outline"

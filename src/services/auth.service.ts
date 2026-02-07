@@ -11,7 +11,31 @@ export interface RegisterData {
   password: string;
   fullName: string;
   role: 'admin' | 'cashier';
-  permissions?: any;
+  permissions?: Record<string, boolean>;
+}
+
+/** Payload for creating a user (admin) – matches backend POST /api/users */
+export interface CreateUserData {
+  username: string;
+  password: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: 'admin' | 'cashier';
+  image?: string;
+  permissions?: Record<string, boolean>;
+}
+
+/** Payload for updating a user – matches backend PUT /api/users/:id */
+export interface UpdateUserData {
+  username?: string;
+  password?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  role?: 'admin' | 'cashier';
+  image?: string;
+  permissions?: Record<string, boolean>;
 }
 
 export interface User {
@@ -119,30 +143,40 @@ class AuthService {
     return response;
   }
 
-  // Change password
-  async changePassword(currentPassword: string, newPassword: string): Promise<any> {
-    return await apiService.put(API_ENDPOINTS.AUTH.CHANGE_PASSWORD, {
-      currentPassword,
-      newPassword,
-    });
+  /** Change password – PUT /api/users/:id/change-password. For own account pass currentPassword; admin can change any user without currentPassword. */
+  async changePassword(
+    userId: string,
+    payload: { newPassword: string; currentPassword?: string }
+  ): Promise<any> {
+    return await apiService.put(
+      API_ENDPOINTS.AUTH.USER_CHANGE_PASSWORD(userId),
+      { newPassword: payload.newPassword.trim(), currentPassword: payload.currentPassword?.trim() }
+    );
   }
 
-  // Get all users (admin only)
+  // Get all users (admin only) – GET /api/users
   async getAllUsers(): Promise<any> {
     return await apiService.get(API_ENDPOINTS.AUTH.USERS);
   }
 
-  // Update user permissions (admin only)
-  async updatePermissions(userId: string, permissions: any): Promise<any> {
-    return await apiService.put(
-      API_ENDPOINTS.AUTH.UPDATE_PERMISSIONS(userId),
-      { permissions }
-    );
+  // Get single user (admin only) – GET /api/users/:id
+  async getUserById(id: string): Promise<any> {
+    return await apiService.get(API_ENDPOINTS.AUTH.USER_BY_ID(id));
   }
 
-  // Toggle user status (admin only)
-  async toggleUserStatus(userId: string): Promise<any> {
-    return await apiService.put(API_ENDPOINTS.AUTH.TOGGLE_STATUS(userId));
+  // Create user (admin only) – POST /api/users
+  async createUser(data: CreateUserData): Promise<any> {
+    return await apiService.post(API_ENDPOINTS.AUTH.USERS, data);
+  }
+
+  // Update user (admin only) – PUT /api/users/:id
+  async updateUser(id: string, data: UpdateUserData): Promise<any> {
+    return await apiService.put(API_ENDPOINTS.AUTH.USER_BY_ID(id), data);
+  }
+
+  // Delete user (admin only) – DELETE /api/users/:id
+  async deleteUser(id: string): Promise<any> {
+    return await apiService.delete(API_ENDPOINTS.AUTH.USER_BY_ID(id));
   }
 }
 

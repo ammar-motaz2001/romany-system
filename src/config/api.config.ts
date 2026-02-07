@@ -10,10 +10,9 @@ export const API_ENDPOINTS = {
     REGISTER: '/auth/register',
     PROFILE: '/auth/profile',
     UPDATE_PROFILE: '/auth/profile',
-    CHANGE_PASSWORD: '/auth/change-password',
-    USERS: '/auth/users',
-    UPDATE_PERMISSIONS: (id: string) => `/auth/users/${id}/permissions`,
-    TOGGLE_STATUS: (id: string) => `/auth/users/${id}/toggle-status`,
+    USERS: '/users',
+    USER_BY_ID: (id: string) => `/users/${id}`,
+    USER_CHANGE_PASSWORD: (id: string) => `/users/${id}/change-password`,
   },
 
   // Customers

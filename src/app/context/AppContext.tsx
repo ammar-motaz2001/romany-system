@@ -57,7 +57,7 @@ function getApiErrorMessage(error: unknown): string {
 /** Map auth API user to AppContext User shape (used after User interface is defined) */
 function mapAuthUserToContextUser(u: Record<string, unknown>): User {
   return {
-    id: String(u.id ?? ''),
+    id: String(u.id ?? (u as { _id?: string })._id ?? ''),
     username: String(u.username ?? ''),
     password: '',
     role: ((u.role as string) === 'admin' ? 'admin' : 'cashier') as User['role'],
@@ -399,9 +399,9 @@ interface AppContextType {
   // Users & Authentication
   currentUser: User | null;
   users: User[];
-  addUser: (user: Omit<User, 'id'>) => void;
-  updateUser: (id: string, user: Partial<User>) => void;
-  deleteUser: (id: string) => void;
+  addUser: (user: Omit<User, 'id'>) => Promise<void>;
+  updateUser: (id: string, user: Partial<User>) => Promise<void>;
+  deleteUser: (id: string) => Promise<void>;
   updateCurrentUser: (user: Partial<User>) => void;
   loginUser: (userId: string) => void;
   loginWithCredentials: (credentials: { username: string; password: string }) => Promise<boolean>;
@@ -2356,39 +2356,140 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setNotifications([newNotification, ...notifications]);
   };
 
-  // Users functions - state only (users loaded from API)
-  const addUser = (user: Omit<User, 'id'>) => {
-    const newUser: User = {
-      ...user,
-      id: Date.now().toString(),
-    };
-    setUsers((prev) => [...prev, newUser]);
-    addNotification({
-      title: 'مستخدم جديد',
-      message: `تم إضافة مستخدم جديد "${user.name}"`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم إضافة المستخدم بنجاح');
+  // Users functions – create via API (backend User schema)
+  const addUser = async (user: Omit<User, 'id'>) => {
+    try {
+      const perms = user.permissions;
+      const payload = {
+        username: user.username?.trim() ?? '',
+        password: user.password ?? '',
+        name: user.name?.trim() ?? '',
+        email: user.email?.trim() ?? '',
+        phone: user.phone?.trim() ?? '',
+        role: user.role ?? 'cashier',
+        image: user.image,
+        permissions: {
+          dashboard: perms?.dashboard ?? true,
+          sales: perms?.sales ?? true,
+          invoices: perms?.invoices ?? true,
+          customers: perms?.customers ?? true,
+          appointments: perms?.appointments ?? true,
+          inventory: perms?.inventory ?? false,
+          services: perms?.services ?? true,
+          expenses: perms?.expenses ?? false,
+          shifts: perms?.shifts ?? true,
+          employees: perms?.employees ?? false,
+          attendance: perms?.attendance ?? false,
+          payroll: perms?.payroll ?? false,
+          reports: perms?.reports ?? false,
+          suppliers: perms?.suppliers ?? false,
+          settings: perms?.settings ?? false,
+        },
+      };
+      if (!payload.username || !payload.password || !payload.name || !payload.email || !payload.phone) {
+        toast.error('اسم المستخدم، كلمة المرور، الاسم، البريد الإلكتروني ورقم الهاتف مطلوبة');
+        return;
+      }
+      if (payload.password.length < 5) {
+        toast.error('كلمة المرور يجب أن تكون 5 أحرف على الأقل');
+        return;
+      }
+      const created = await authService.createUser(payload);
+      const raw = (created as { data?: unknown })?.data ?? (created as { user?: unknown })?.user ?? created;
+      const userObj = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+      const mapped = mapAuthUserToContextUser(userObj);
+      if (mapped.id) {
+        setUsers((prev) => [...prev, mapped]);
+      }
+      addNotification({
+        title: 'مستخدم جديد',
+        message: `تم إضافة مستخدم جديد "${user.name}"`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم إضافة المستخدم بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء إضافة المستخدم');
+      throw error;
+    }
   };
 
-  const updateUser = (id: string, user: Partial<User>) => {
-    setUsers((prev) =>
-      prev.map((u) => (u.id === id ? { ...u, ...user } : u))
-    );
-    toast.success('تم تحديث المستخدم بنجاح');
+  const updateUser = async (id: string, user: Partial<User>) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف المستخدم غير صالح');
+      return;
+    }
+    try {
+      const perms = user.permissions;
+      const payload: Record<string, unknown> = {};
+      if (user.username != null) payload.username = user.username.trim();
+      if (user.password != null && user.password.trim().length >= 5) payload.password = user.password.trim();
+      if (user.name != null) payload.name = user.name.trim();
+      if (user.email != null) payload.email = user.email.trim();
+      if (user.phone != null) payload.phone = user.phone.trim();
+      if (user.role != null) payload.role = user.role;
+      if (user.image !== undefined) payload.image = user.image;
+      if (perms !== undefined) {
+        payload.permissions = {
+          dashboard: perms.dashboard ?? true,
+          sales: perms.sales ?? true,
+          invoices: perms.invoices ?? true,
+          customers: perms.customers ?? true,
+          appointments: perms.appointments ?? true,
+          inventory: perms.inventory ?? false,
+          services: perms.services ?? true,
+          expenses: perms.expenses ?? false,
+          shifts: perms.shifts ?? true,
+          employees: perms.employees ?? false,
+          attendance: perms.attendance ?? false,
+          payroll: perms.payroll ?? false,
+          reports: perms.reports ?? false,
+          suppliers: perms.suppliers ?? false,
+          settings: perms.settings ?? false,
+        };
+      }
+      const res = await authService.updateUser(normalizedId, payload);
+      const raw = (res as { data?: unknown })?.data ?? res;
+      const userObj = typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>) : {};
+      const mapped = mapAuthUserToContextUser(userObj);
+      setUsers((prev) =>
+        prev.map((u) => (u.id === normalizedId ? mapped : u))
+      );
+      if (currentUser?.id === normalizedId) {
+        setCurrentUser(mapped);
+      }
+      toast.success('تم تحديث المستخدم بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء تحديث المستخدم');
+      throw error;
+    }
   };
 
-  const deleteUser = (id: string) => {
+  const deleteUser = async (id: string) => {
+    const normalizedId = id != null ? String(id).trim() : '';
+    if (!normalizedId) {
+      toast.error('معرف المستخدم غير صالح');
+      return;
+    }
     const user = users.find((u) => u.id === id);
-    setUsers((prev) => prev.filter((u) => u.id !== id));
-    addNotification({
-      title: 'حذف مستخدم',
-      message: `تم حذف المستخدم \"${user?.name}\" من النظام`,
-      time: 'الآن',
-      read: false,
-    });
-    toast.success('تم حذف المستخدم بنجاح');
+    try {
+      await authService.deleteUser(normalizedId);
+      setUsers((prev) => prev.filter((u) => u.id !== normalizedId));
+      addNotification({
+        title: 'حذف مستخدم',
+        message: `تم حذف المستخدم "${user?.name}" من النظام`,
+        time: 'الآن',
+        read: false,
+      });
+      toast.success('تم حذف المستخدم بنجاح');
+    } catch (error: unknown) {
+      const msg = getApiErrorMessage(error);
+      toast.error(msg ?? 'حدث خطأ أثناء حذف المستخدم');
+      throw error;
+    }
   };
 
   const updateCurrentUser = (user: Partial<User>) => {
