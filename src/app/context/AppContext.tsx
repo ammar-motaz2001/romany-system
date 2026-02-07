@@ -751,6 +751,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return statusMap[status] || status;
   };
 
+  /** Map sale status to backend enum (API: completed | pending | cancelled; Arabic: مكتمل, قيد الانتظار, ملغي) */
+  const mapSaleStatusToApi = (status: string): string => {
+    const s = (status ?? '').trim();
+    const arabicToApi: Record<string, string> = {
+      'مكتمل': 'completed',
+      'منتهي': 'completed',
+      'غير مكتمل': 'pending',
+      'قيد الانتظار': 'pending',
+      'معلق': 'pending',
+      'ملغي': 'cancelled',
+    };
+    if (arabicToApi[s]) return arabicToApi[s];
+    const lower = s.toLowerCase();
+    if (lower === 'completed' || lower === 'pending' || lower === 'cancelled') return lower;
+    return 'completed';
+  };
+
   const mapPaymentMethod = (method: string): string => {
     const methodMap: { [key: string]: string } = {
       'cash': 'نقدي',
@@ -1100,7 +1117,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         service: sale.service,
         amount: sale.amount,
         discount: sale.discount,
-        status: sale.status,
+        status: mapSaleStatusToApi(sale.status),
         date: sale.date,
         category: sale.category,
         items: sale.items,
