@@ -486,12 +486,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       setAppointments(
         appointmentsRes.status === 'fulfilled'
-          ? unwrapList<Appointment>(appointmentsRes.value)
+          ? mapBackendAppointmentsToContext(unwrapList(appointmentsRes.value))
           : []
       );
       setSales(
         salesRes.status === 'fulfilled'
-          ? unwrapList<Sale>(salesRes.value)
+          ? mapBackendSalesToContext(unwrapList(salesRes.value))
           : []
       );
       setInventory(
@@ -501,7 +501,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       setAttendanceRecords(
         attendanceRes.status === 'fulfilled'
-          ? unwrapList<AttendanceRecord>(attendanceRes.value)
+          ? mapBackendAttendanceToContext(unwrapList(attendanceRes.value))
           : []
       );
       setEmployees(
@@ -572,6 +572,90 @@ export function AppProvider({ children }: { children: ReactNode }) {
         visitHistory: Array.isArray((r as { visitHistory?: unknown }).visitHistory)
           ? (r as { visitHistory: Customer['visitHistory'] }).visitHistory
           : [],
+      };
+    });
+  }
+
+  /** Normalize backend sale shape so dashboard gets correct fields (date, amount, customer, service) */
+  function mapBackendSalesToContext(list: unknown[]): Sale[] {
+    return list.map((s) => {
+      const r = s as Record<string, unknown>;
+      const dateRaw = r.date ?? r.saleDate ?? r.createdAt;
+      const dateStr =
+        typeof dateRaw === 'string'
+          ? dateRaw.includes('T')
+            ? dateRaw.split('T')[0]
+            : dateRaw
+          : '';
+      return {
+        id: String(r.id ?? ''),
+        customer: String(r.customer ?? r.customerName ?? ''),
+        customerPhone: r.customerPhone as string | undefined,
+        service: String(r.service ?? r.serviceName ?? r.services ?? ''),
+        amount: Number(r.amount ?? r.total ?? 0),
+        discount: r.discount as number | undefined,
+        status: String(r.status ?? ''),
+        date: dateStr,
+        category: r.category as string | undefined,
+        items: r.items as Sale['items'],
+        paymentMethod: r.paymentMethod as string | undefined,
+        notes: r.notes as string | undefined,
+      };
+    });
+  }
+
+  /** Normalize backend appointment shape for dashboard (date, customer, service, status) */
+  function mapBackendAppointmentsToContext(list: unknown[]): Appointment[] {
+    return list.map((a) => {
+      const r = a as Record<string, unknown>;
+      const dateRaw = r.date ?? r.appointmentDate ?? r.scheduledAt ?? r.createdAt;
+      const dateStr =
+        typeof dateRaw === 'string'
+          ? dateRaw.includes('T')
+            ? dateRaw.split('T')[0]
+            : dateRaw
+          : '';
+      return {
+        id: String(r.id ?? ''),
+        customer: String(r.customer ?? r.customerName ?? ''),
+        customerPhone: r.customerPhone as string | undefined,
+        customerImage: r.customerImage as string | undefined,
+        service: String(r.service ?? r.serviceName ?? ''),
+        time: String(r.time ?? r.startTime ?? ''),
+        duration: String(r.duration ?? ''),
+        status: String(r.status ?? ''),
+        date: dateStr,
+        specialist: r.specialist as string | undefined,
+      };
+    });
+  }
+
+  /** Normalize backend attendance shape (date, status present/حاضر) */
+  function mapBackendAttendanceToContext(list: unknown[]): AttendanceRecord[] {
+    return list.map((a) => {
+      const r = a as Record<string, unknown>;
+      const dateRaw = r.date ?? r.attendanceDate ?? r.checkIn ?? r.createdAt;
+      const dateStr =
+        typeof dateRaw === 'string'
+          ? dateRaw.includes('T')
+            ? dateRaw.split('T')[0]
+            : dateRaw
+          : String(dateRaw ?? '');
+      return {
+        id: String(r.id ?? ''),
+        employeeId: String(r.employeeId ?? ''),
+        employeeName: String(r.employeeName ?? r.employee ?? r.name ?? ''),
+        name: String(r.name ?? r.employeeName ?? ''),
+        position: String(r.position ?? ''),
+        checkIn: String(r.checkIn ?? r.checkInTime ?? ''),
+        checkOut: String(r.checkOut ?? r.checkOutTime ?? ''),
+        workHours: r.workHours as string | number | undefined,
+        status: String(r.status ?? ''),
+        date: dateStr,
+        image: r.image as string | undefined,
+        advance: r.advance as number | undefined,
+        day: r.day as string | undefined,
+        notes: r.notes as string | undefined,
       };
     });
   }
@@ -656,7 +740,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [darkMode]);
 
-  // Services functions - integrated with API
+  /** Normalize backend service shape so context and المبيعات (POS) get correct fields */
+  function mapBackendServiceToContext(raw: unknown, fallback: Omit<Service, 'id'>): Service {
+    const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+    return {
+      id: String(r.id ?? r._id ?? Date.now().toString()),
+      name: String(r.name ?? fallback.name ?? ''),
+      category: String(r.category ?? fallback.category ?? ''),
+      price: Number(r.price ?? fallback.price ?? 0),
+      duration: r.duration != null ? String(r.duration) : fallback.duration,
+      image: r.image as string | undefined,
+      active: r.active !== undefined ? Boolean(r.active) : fallback.active !== false,
+      salesCount: typeof r.salesCount === 'number' ? r.salesCount : 0,
+    };
+  }
+
+  // Services functions - integrated with API (updates context so الأقسام والخدمات and المبيعات see new service)
   const addService = async (service: Omit<Service, 'id'>) => {
     try {
       const created = await serviceService.createService({
@@ -667,15 +766,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         image: service.image,
         active: service.active !== false,
       });
-      const resolved = unwrapData<Service>(created) ?? {
-        ...service,
-        id: (created as Service)?.id ?? Date.now().toString(),
-        active: service.active !== false,
-        salesCount: 0,
-      };
-      if (typeof resolved === 'object' && 'id' in resolved) {
-        setServices((prev) => [...prev, resolved as Service]);
-      }
+      const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
+      const resolved = mapBackendServiceToContext(raw, { ...service, active: service.active !== false });
+      setServices((prev) => [...prev, resolved]);
       addNotification({
         title: 'خدمة جديدة',
         message: `تم إضافة خدمة "${service.name}" بنجاح`,

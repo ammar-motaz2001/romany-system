@@ -18,17 +18,24 @@ export default function AddServiceDialog({ open, onClose }: AddServiceDialogProp
     duration: '',
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    addService({
-      name: formData.name,
-      category: formData.category,
-      price: parseFloat(formData.price),
-      duration: formData.duration,
-      image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400',
-    });
-    setFormData({ name: '', category: '', price: '', duration: '' });
-    onClose();
+    setIsSubmitting(true);
+    try {
+      await addService({
+        name: formData.name,
+        category: formData.category,
+        price: parseFloat(formData.price),
+        duration: formData.duration,
+        image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=400',
+      });
+      setFormData({ name: '', category: '', price: '', duration: '' });
+      onClose();
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   if (!open) return null;
@@ -111,8 +118,9 @@ export default function AddServiceDialog({ open, onClose }: AddServiceDialogProp
             <Button
               type="submit"
               className="flex-1 bg-gradient-to-r from-pink-500 to-purple-600 text-white"
+              disabled={isSubmitting}
             >
-              إضافة الخدمة
+              {isSubmitting ? 'جاري الإضافة...' : 'إضافة الخدمة'}
             </Button>
             <Button
               type="button"

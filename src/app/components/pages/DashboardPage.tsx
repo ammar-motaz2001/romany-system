@@ -24,7 +24,7 @@ export default function DashboardPage() {
     shifts = [],
     employees = [],
     currentUser,
-    systemSettings
+    systemSettings,
   } = useApp();
   
   const navigate = useNavigate();
@@ -66,6 +66,11 @@ export default function DashboardPage() {
     ? shifts.find(s => s.cashier === currentUser?.name && s.status === 'open')
     : shifts.find(s => s.status === 'open');
 
+  const openingBalance =
+    (currentOpenShift as { startingCash?: number; openingBalance?: number } | undefined)?.startingCash ??
+    (currentOpenShift as { openingBalance?: number } | undefined)?.openingBalance ??
+    0;
+
   // Use shift date if there's an open shift, otherwise use today
   const activeDate = currentOpenShift ? currentOpenShift.date : today;
   const shiftDisplay = currentOpenShift 
@@ -76,26 +81,36 @@ export default function DashboardPage() {
   const shiftSales = sales.filter(s => isSameDate(s.date, activeDate));
   const shiftRevenue = shiftSales.reduce((sum, sale) => sum + sale.amount, 0);
   const shiftInvoicesCount = shiftSales.length;
-  
+
+  // All-time totals (same data as sidebar pages: Invoices, Customers, Appointments, Employees)
+  const totalRevenue = sales.reduce((sum, sale) => sum + sale.amount, 0);
+  const totalInvoicesCount = sales.length;
+  const totalCustomersCount = customers.length;
+
   const shiftCustomers = new Set(shiftSales.map(s => s.customer)).size;
-  
+
   // Filter appointments: show only active appointments (exclude completed and cancelled)
-  const shiftAppointments = appointments.filter(a => 
-    isSameDate(a.date, activeDate) && 
-    a.status !== 'منتهي' && 
-    a.status !== 'completed' && 
-    a.status !== 'ملغي' && 
+  const shiftAppointments = appointments.filter(a =>
+    isSameDate(a.date, activeDate) &&
+    a.status !== 'منتهي' &&
+    a.status !== 'completed' &&
+    a.status !== 'ملغي' &&
     a.status !== 'cancelled'
   );
   const shiftAppointmentsCount = shiftAppointments.length;
-  
-  const lowStockProducts = inventory.filter(p => p.stock <= p.minStock);
+  const totalAppointmentsCount = appointments.length;
+
+  const lowStockProducts = inventory.filter(p => p.stock <= (p.minStock ?? 0));
   const lowStockCount = lowStockProducts.length;
-  
-  const shiftAttendance = attendanceRecords.filter(a => isSameDate(a.date, activeDate) && a.status === 'حاضر');
+
+  const isPresent = (status: string) =>
+    status === 'حاضر' || status?.toLowerCase() === 'present';
+  const shiftAttendance = attendanceRecords.filter(a =>
+    isSameDate(a.date, activeDate) && isPresent(a.status)
+  );
   const presentEmployeesCount = shiftAttendance.length;
-  
-  // Total employees count
+
+  // Total employees count (same as Employees page)
   const totalEmployeesCount = employees.length;
 
   // Check for low stock and send notifications
@@ -252,8 +267,8 @@ export default function DashboardPage() {
                   </p>
                   <p className="text-sm text-white/90">
                     {currentLanguage === 'ar' 
-                      ? `الكاشير: ${currentOpenShift.cashier} - الرصيد الافتتاحي: ${currentOpenShift.openingBalance} ج.م`
-                      : `Cashier: ${currentOpenShift.cashier} - Opening Balance: ${currentOpenShift.openingBalance} EGP`
+                      ? `الكاشير: ${currentOpenShift.cashier} - الرصيد الافتتاحي: ${openingBalance} ج.م`
+                      : `Cashier: ${currentOpenShift.cashier} - Opening Balance: ${openingBalance} EGP`
                     }
                   </p>
                 </div>
@@ -303,9 +318,12 @@ export default function DashboardPage() {
               </div>
               <p className="text-xs font-bold text-pink-600 dark:text-pink-400 mb-1.5 uppercase tracking-wider">{currentLanguage === 'ar' ? 'إجمالي المبيعات' : 'Total Sales'}</p>
               <h3 className="text-2xl font-black text-pink-700 dark:text-pink-300 leading-tight">
-                {shiftRevenue.toFixed(0)}
+                {totalRevenue.toFixed(0)}
                 <span className="text-sm font-semibold mr-1">{currentLanguage === 'ar' ? 'ج.م' : 'EGP'}</span>
               </h3>
+              <p className="text-xs text-pink-600/70 dark:text-pink-400/70 mt-1">
+                {currentLanguage === 'ar' ? `اليوم: ${shiftRevenue.toFixed(0)} ج.م` : `Today: ${shiftRevenue.toFixed(0)} EGP`}
+              </p>
             </div>
           </Card>
 
@@ -322,11 +340,14 @@ export default function DashboardPage() {
                 </div>
               </div>
               <p className="text-xs font-bold text-purple-600 dark:text-purple-400 mb-1.5 uppercase tracking-wider">{currentLanguage === 'ar' ? 'عدد الفواتير' : 'Invoices'}</p>
-              <h3 className="text-2xl font-black text-purple-700 dark:text-purple-300 leading-tight">{shiftInvoicesCount}</h3>
+              <h3 className="text-2xl font-black text-purple-700 dark:text-purple-300 leading-tight">{totalInvoicesCount}</h3>
+              <p className="text-xs text-purple-600/70 dark:text-purple-400/70 mt-1">
+                {currentLanguage === 'ar' ? `اليوم: ${shiftInvoicesCount}` : `Today: ${shiftInvoicesCount}`}
+              </p>
             </div>
           </Card>
 
-          {/* Shift Customers */}
+          {/* Customers */}
           <Card className="relative overflow-hidden bg-gradient-to-br from-cyan-50 to-blue-50 dark:from-cyan-900/20 dark:to-blue-900/20 border-2 border-cyan-200 dark:border-cyan-800 hover:border-cyan-400 dark:hover:border-cyan-600 transition-all duration-300 p-5 group hover:shadow-2xl hover:-translate-y-1">
             <div className="absolute -right-8 -top-8 w-32 h-32 bg-cyan-200/30 dark:bg-cyan-700/30 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
             <div className="relative z-10">
@@ -339,11 +360,14 @@ export default function DashboardPage() {
                 </div>
               </div>
               <p className="text-xs font-bold text-cyan-600 dark:text-cyan-400 mb-1.5 uppercase tracking-wider">{currentLanguage === 'ar' ? 'العملاء' : 'Customers'}</p>
-              <h3 className="text-2xl font-black text-cyan-700 dark:text-cyan-300 leading-tight">{shiftCustomers}</h3>
+              <h3 className="text-2xl font-black text-cyan-700 dark:text-cyan-300 leading-tight">{totalCustomersCount}</h3>
+              <p className="text-xs text-cyan-600/70 dark:text-cyan-400/70 mt-1">
+                {currentLanguage === 'ar' ? `عملاء اليوم: ${shiftCustomers}` : `Today: ${shiftCustomers}`}
+              </p>
             </div>
           </Card>
 
-          {/* Shift Appointments */}
+          {/* Active Appointments */}
           <Card className="relative overflow-hidden bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 border-2 border-amber-200 dark:border-amber-800 hover:border-amber-400 dark:hover:border-amber-600 transition-all duration-300 p-5 group hover:shadow-2xl hover:-translate-y-1">
             <div className="absolute -right-8 -top-8 w-32 h-32 bg-amber-200/30 dark:bg-amber-700/30 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-500"></div>
             <div className="relative z-10">
@@ -358,7 +382,9 @@ export default function DashboardPage() {
               <p className="text-xs font-bold text-amber-600 dark:text-amber-400 mb-1.5 uppercase tracking-wider">{currentLanguage === 'ar' ? 'المواعيد النشطة' : 'Active Appointments'}</p>
               <h3 className="text-2xl font-black text-amber-700 dark:text-amber-300 leading-tight">{shiftAppointmentsCount}</h3>
               <p className="text-xs text-amber-600/70 dark:text-amber-400/70 mt-1">
-                {currentLanguage === 'ar' ? 'مواعيد مؤكدة وقيد الانتظار' : 'Confirmed & Pending'}
+                {currentLanguage === 'ar'
+                  ? `إجمالي المواعيد: ${totalAppointmentsCount} (مؤكد/قيد الانتظار اليوم)`
+                  : `Total: ${totalAppointmentsCount} (confirmed/pending today)`}
               </p>
             </div>
           </Card>
@@ -722,7 +748,7 @@ export default function DashboardPage() {
                     {currentLanguage === 'ar' ? 'الكاش المتوقع' : 'Expected Cash'}
                   </p>
                   <p className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {(currentOpenShift.openingBalance + shiftRevenue).toFixed(0)} {currentLanguage === 'ar' ? 'ج.م' : 'EGP'}
+                    {(openingBalance + shiftRevenue).toFixed(0)} {currentLanguage === 'ar' ? 'ج.م' : 'EGP'}
                   </p>
                 </div>
               </div>
