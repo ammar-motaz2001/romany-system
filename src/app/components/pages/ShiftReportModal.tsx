@@ -13,53 +13,49 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
   const { systemSettings, sales, expenses } = useApp();
   const printRef = useRef<HTMLDivElement>(null);
 
-  // Get sales for this shift
+  // Prefer real data from API (shift endpoint); fallback to derived from context
   const shiftSales = sales.filter(sale => sale.shiftId === shift.id);
-
-  // Calculate stats
-  const servicesSales = shiftSales
-    .filter(sale => !sale.items || sale.items.length === 0)
-    .reduce((sum, sale) => sum + sale.amount, 0);
-
-  const productsSales = shiftSales
-    .filter(sale => sale.items && sale.items.length > 0)
-    .reduce((sum, sale) => sum + sale.amount, 0);
-
-  const totalSales = servicesSales + productsSales;
-
-  const discounts = shiftSales.reduce((sum, sale) => {
-    if (sale.discount && sale.subtotal) {
-      return sum + (sale.subtotal - sale.amount);
-    }
-    return sum;
-  }, 0);
-
-  const returns = 0; // Can be calculated if you have returns data
-
-  const netSales = totalSales - discounts - returns;
-
-  // Payment methods
-  const cashPayments = shiftSales
+  const derivedCash = shiftSales
     .filter(sale => sale.paymentMethod === 'نقدي')
     .reduce((sum, sale) => sum + sale.amount, 0);
-
-  const cardPayments = shiftSales
+  const derivedCard = shiftSales
     .filter(sale => sale.paymentMethod === 'بطاقة')
     .reduce((sum, sale) => sum + sale.amount, 0);
-
-  const instaPayPayments = shiftSales
+  const derivedInstaPay = shiftSales
     .filter(sale => sale.paymentMethod === 'InstaPay')
     .reduce((sum, sale) => sum + sale.amount, 0);
-
-  // Shift expenses (cash only)
-  const shiftExpenses = expenses
+  const derivedTotalSales = shiftSales.reduce((sum, sale) => sum + sale.amount, 0);
+  const derivedExpenses = expenses
     .filter(exp => exp.shiftId === shift.id && exp.paymentMethod === 'نقدي')
     .reduce((sum, exp) => sum + exp.amount, 0);
 
-  // Cash reconciliation
-  const openingBalance = shift.openingBalance || 0;
+  const totalSalesFromApi = Number(shift.totalSales ?? shift.total_sales);
+  const hasApiTotals = totalSalesFromApi > 0 || (shift.salesDetails && (
+    (shift.salesDetails as { cash?: number }).cash !== undefined
+  ));
+
+  const totalSales = hasApiTotals ? totalSalesFromApi : derivedTotalSales;
+  const cashPayments = (shift.salesDetails as { cash?: number } | undefined)?.cash ?? derivedCash;
+  const cardPayments = (shift.salesDetails as { card?: number } | undefined)?.card ?? derivedCard;
+  const instaPayPayments = (shift.salesDetails as { instapay?: number } | undefined)?.instapay ?? derivedInstaPay;
+
+  const servicesSales = shiftSales
+    .filter(sale => !sale.items || sale.items.length === 0)
+    .reduce((sum, sale) => sum + sale.amount, 0);
+  const productsSales = shiftSales
+    .filter(sale => sale.items && sale.items.length > 0)
+    .reduce((sum, sale) => sum + sale.amount, 0);
+  const discounts = shiftSales.reduce((sum, sale) => {
+    if (sale.discount && sale.subtotal) return sum + (sale.subtotal - sale.amount);
+    return sum;
+  }, 0);
+  const returns = 0;
+  const netSales = totalSales - discounts - returns;
+
+  const shiftExpenses = Number(shift.totalExpenses ?? shift.total_expenses) || derivedExpenses;
+  const openingBalance = Number(shift.startingCash ?? shift.openingBalance ?? 0);
   const expectedCash = openingBalance + cashPayments - shiftExpenses;
-  const actualCash = shift.finalCash || 0;
+  const actualCash = Number(shift.finalCash ?? shift.closingCash ?? 0);
   const cashDifference = actualCash - expectedCash;
 
   const handlePrintReport = () => {
@@ -249,36 +245,42 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                 padding: '15px',
                 boxShadow: '0 2px 4px rgba(0,0,0,0.05)'
               }}>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  padding: '10px 0',
-                  borderBottom: '1px solid #e5e7eb',
-                  fontSize: '15px'
-                }}>
-                  <span style={{ color: '#6b7280' }}>Total Transactions:</span>
-                  <span style={{ fontWeight: '600', color: '#111827' }}>{shiftSales.length}</span>
-                </div>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  padding: '10px 0',
-                  borderBottom: '1px solid #e5e7eb',
-                  fontSize: '15px'
-                }}>
-                  <span style={{ color: '#6b7280' }}>Services Sales:</span>
-                  <span style={{ fontWeight: '600', color: '#111827' }}>{servicesSales.toFixed(2)} EGP</span>
-                </div>
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  padding: '10px 0',
-                  borderBottom: '1px solid #e5e7eb',
-                  fontSize: '15px'
-                }}>
-                  <span style={{ color: '#6b7280' }}>Products Sales:</span>
-                  <span style={{ fontWeight: '600', color: '#111827' }}>{productsSales.toFixed(2)} EGP</span>
-                </div>
+                {!hasApiTotals && (
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    padding: '10px 0',
+                    borderBottom: '1px solid #e5e7eb',
+                    fontSize: '15px'
+                  }}>
+                    <span style={{ color: '#6b7280' }}>Total Transactions:</span>
+                    <span style={{ fontWeight: '600', color: '#111827' }}>{shiftSales.length}</span>
+                  </div>
+                )}
+                {!hasApiTotals && (servicesSales > 0 || productsSales > 0) && (
+                  <>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      padding: '10px 0',
+                      borderBottom: '1px solid #e5e7eb',
+                      fontSize: '15px'
+                    }}>
+                      <span style={{ color: '#6b7280' }}>Services Sales:</span>
+                      <span style={{ fontWeight: '600', color: '#111827' }}>{servicesSales.toFixed(2)} ج.م</span>
+                    </div>
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      padding: '10px 0',
+                      borderBottom: '1px solid #e5e7eb',
+                      fontSize: '15px'
+                    }}>
+                      <span style={{ color: '#6b7280' }}>Products Sales:</span>
+                      <span style={{ fontWeight: '600', color: '#111827' }}>{productsSales.toFixed(2)} ج.م</span>
+                    </div>
+                  </>
+                )}
                 <div style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -287,7 +289,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   fontSize: '15px'
                 }}>
                   <span style={{ color: '#6b7280' }}>Total Sales:</span>
-                  <span style={{ fontWeight: '600', color: '#111827' }}>{totalSales.toFixed(2)} EGP</span>
+                  <span style={{ fontWeight: '600', color: '#111827' }}>{Number(totalSales).toFixed(2)} ج.م</span>
                 </div>
                 <div style={{
                   display: 'flex',
@@ -297,7 +299,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   fontSize: '15px'
                 }}>
                   <span style={{ color: '#dc2626' }}>Discounts:</span>
-                  <span style={{ fontWeight: '600', color: '#dc2626' }}>-{discounts.toFixed(2)} EGP</span>
+                  <span style={{ fontWeight: '600', color: '#dc2626' }}>-{discounts.toFixed(2)} ج.م</span>
                 </div>
                 <div style={{
                   display: 'flex',
@@ -307,7 +309,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   fontSize: '15px'
                 }}>
                   <span style={{ color: '#dc2626' }}>Returns:</span>
-                  <span style={{ fontWeight: '600', color: '#dc2626' }}>-{returns.toFixed(2)} EGP</span>
+                  <span style={{ fontWeight: '600', color: '#dc2626' }}>-{returns.toFixed(2)} ج.م</span>
                 </div>
                 <div style={{
                   display: 'flex',
@@ -316,7 +318,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   fontSize: '18px'
                 }}>
                   <span style={{ fontWeight: 'bold', color: '#166534' }}>Net Sales:</span>
-                  <span style={{ fontWeight: 'bold', color: '#16a34a', fontSize: '20px' }}>{netSales.toFixed(2)} EGP</span>
+                  <span style={{ fontWeight: 'bold', color: '#16a34a', fontSize: '20px' }}>{netSales.toFixed(2)} ج.م</span>
                 </div>
               </div>
             </div>
@@ -367,7 +369,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   <div style={{ fontSize: '28px', marginBottom: '8px' }}>💵</div>
                   <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '5px', fontWeight: '500' }}>Cash</div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#16a34a' }}>{cashPayments.toFixed(2)}</div>
-                  <div style={{ fontSize: '12px', color: '#9ca3af' }}>EGP</div>
+                  <div style={{ fontSize: '12px', color: '#9ca3af' }}>ج.م</div>
                 </div>
                 <div style={{
                   background: 'white',
@@ -380,7 +382,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   <div style={{ fontSize: '28px', marginBottom: '8px' }}>💳</div>
                   <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '5px', fontWeight: '500' }}>Card</div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#2563eb' }}>{cardPayments.toFixed(2)}</div>
-                  <div style={{ fontSize: '12px', color: '#9ca3af' }}>EGP</div>
+                  <div style={{ fontSize: '12px', color: '#9ca3af' }}>ج.م</div>
                 </div>
                 <div style={{
                   background: 'white',
@@ -393,7 +395,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                   <div style={{ fontSize: '28px', marginBottom: '8px' }}>📱</div>
                   <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '5px', fontWeight: '500' }}>InstaPay</div>
                   <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#d97706' }}>{instaPayPayments.toFixed(2)}</div>
-                  <div style={{ fontSize: '12px', color: '#9ca3af' }}>EGP</div>
+                  <div style={{ fontSize: '12px', color: '#9ca3af' }}>ج.م</div>
                 </div>
               </div>
             </div>
@@ -443,7 +445,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                     fontSize: '15px'
                   }}>
                     <span style={{ color: '#6b7280' }}>Opening Balance:</span>
-                    <span style={{ fontWeight: '600', color: '#3b82f6' }}>{openingBalance.toFixed(2)} EGP</span>
+                    <span style={{ fontWeight: '600', color: '#3b82f6' }}>{openingBalance.toFixed(2)} ج.م</span>
                   </div>
                   <div style={{
                     display: 'flex',
@@ -453,7 +455,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                     fontSize: '15px'
                   }}>
                     <span style={{ color: '#6b7280' }}>Cash Sales:</span>
-                    <span style={{ fontWeight: '600', color: '#16a34a' }}>+{cashPayments.toFixed(2)} EGP</span>
+                    <span style={{ fontWeight: '600', color: '#16a34a' }}>+{cashPayments.toFixed(2)} ج.م</span>
                   </div>
                   <div style={{
                     display: 'flex',
@@ -463,7 +465,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                     fontSize: '15px'
                   }}>
                     <span style={{ color: '#6b7280' }}>Cash Expenses:</span>
-                    <span style={{ fontWeight: '600', color: '#dc2626' }}>-{shiftExpenses.toFixed(2)} EGP</span>
+                    <span style={{ fontWeight: '600', color: '#dc2626' }}>-{shiftExpenses.toFixed(2)} ج.م</span>
                   </div>
                   <div style={{
                     display: 'flex',
@@ -477,7 +479,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                     fontSize: '16px'
                   }}>
                     <span style={{ fontWeight: 'bold', color: '#6b21a8' }}>Expected Cash in Drawer:</span>
-                    <span style={{ fontWeight: 'bold', color: '#7c3aed', fontSize: '18px' }}>{expectedCash.toFixed(2)} EGP</span>
+                    <span style={{ fontWeight: 'bold', color: '#7c3aed', fontSize: '18px' }}>{expectedCash.toFixed(2)} ج.م</span>
                   </div>
                   <div style={{
                     display: 'flex',
@@ -487,7 +489,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                     fontSize: '15px'
                   }}>
                     <span style={{ color: '#6b7280' }}>Actual Cash Counted:</span>
-                    <span style={{ fontWeight: '600', color: '#111827' }}>{actualCash.toFixed(2)} EGP</span>
+                    <span style={{ fontWeight: '600', color: '#111827' }}>{actualCash.toFixed(2)} ج.م</span>
                   </div>
                   <div style={{
                     display: 'flex',
@@ -506,7 +508,7 @@ export default function ShiftReportModal({ shift, onClose }: ShiftReportModalPro
                         fontSize: '22px',
                         color: cashDifference > 0 ? '#16a34a' : cashDifference < 0 ? '#dc2626' : '#374151'
                       }}>
-                        {cashDifference > 0 ? '+' : ''}{cashDifference.toFixed(2)} EGP
+                        {cashDifference > 0 ? '+' : ''}{cashDifference.toFixed(2)} ج.م
                       </div>
                       <div style={{
                         fontSize: '13px',

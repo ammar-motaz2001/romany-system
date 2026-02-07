@@ -10,7 +10,7 @@ import ShiftReportModal from '@/app/components/pages/ShiftReportModal';
 // Shifts Management Page
 
 export default function ShiftsPage() {
-  const { shifts, fetchShifts } = useApp();
+  const { shifts, fetchShifts, closeShift } = useApp();
   const [filterStatus, setFilterStatus] = useState<'all' | 'open' | 'closed'>('all');
 
   // Fetch shifts from GET /api/shifts when الورديات page is opened
@@ -271,30 +271,39 @@ export default function ShiftsPage() {
                   </div>
                 </div>
 
-                {shift.status === 'closed' && (
-                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                  {shift.status === 'closed' && (
                     <div className="flex items-center justify-between text-sm mb-3">
                       <span className="text-gray-600 dark:text-gray-400">المدة الزمنية:</span>
                       <span className="font-medium text-gray-900 dark:text-white">
                         {calculateDuration(shift.startTime, shift.endTime)}
                       </span>
                     </div>
-                    <div className="flex gap-2">
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => handleViewReport(shift)}
+                      className="bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white"
+                      size="sm"
+                    >
+                      <Eye className="ml-2 w-4 h-4" />
+                      عرض التقرير
+                    </Button>
+                    {shift.status === 'open' ? (
                       <Button
-                        onClick={() => handleViewReport(shift)}
-                        className="flex-1 bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-600 hover:to-purple-700 text-white"
+                        onClick={() => closeShift(shift.id)}
+                        variant="destructive"
                         size="sm"
                       >
-                        <Eye className="ml-2 w-4 h-4" />
-                        عرض التقرير
+                        <XCircle className="ml-2 w-4 h-4" />
+                        إغلاق الوردية
                       </Button>
+                    ) : (
                       <Button
                         onClick={() => {
                           setSelectedShift(shift);
                           setShowReportModal(true);
-                          setTimeout(() => {
-                            window.print();
-                          }, 500);
+                          setTimeout(() => window.print(), 500);
                         }}
                         variant="outline"
                         size="sm"
@@ -302,9 +311,9 @@ export default function ShiftsPage() {
                         <Printer className="ml-2 w-4 h-4" />
                         طباعة
                       </Button>
-                    </div>
+                    )}
                   </div>
-                )}
+                </div>
               </Card>
             ))
           )}

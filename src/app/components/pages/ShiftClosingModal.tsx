@@ -19,42 +19,29 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
   const [showReport, setShowReport] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
-  // حساب الإحصائيات
-  const calculateStats = () => {
+  // حساب الإحصائيات من المبيعات المحلية (للاحتياط)
+  const derivedStats = (() => {
     const servicesSales = shiftSales
       .filter(sale => !sale.items || sale.items.length === 0)
       .reduce((sum, sale) => sum + sale.amount, 0);
-
     const productsSales = shiftSales
       .filter(sale => sale.items && sale.items.length > 0)
       .reduce((sum, sale) => sum + sale.amount, 0);
-
     const totalSales = servicesSales + productsSales;
-
     const discounts = shiftSales.reduce((sum, sale) => {
-      if (sale.discount && sale.subtotal) {
-        return sum + (sale.subtotal - sale.amount);
-      }
+      if (sale.discount && sale.subtotal) return sum + (sale.subtotal - sale.amount);
       return sum;
     }, 0);
-
-    const returns = 0; // يمكن إضافة منطق المرتجعات لاحقاً
-
-    const netSales = totalSales - returns;
-
+    const returns = 0;
     const cashPayments = shiftSales
       .filter(sale => sale.paymentMethod === 'نقدي' || sale.paymentMethod === 'cash')
       .reduce((sum, sale) => sum + sale.amount, 0);
-
     const cardPayments = shiftSales
       .filter(sale => sale.paymentMethod === 'بطاقة' || sale.paymentMethod === 'card')
       .reduce((sum, sale) => sum + sale.amount, 0);
-
     const instaPayPayments = shiftSales
       .filter(sale => sale.paymentMethod === 'InstaPay' || sale.paymentMethod === 'instapay')
       .reduce((sum, sale) => sum + sale.amount, 0);
-
-    // حساب المصروفات النقدية في الوردية
     const shiftExpenses = expenses
       .filter(expense => {
         if (!currentShift) return false;
@@ -63,28 +50,46 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
         return expenseDate >= shiftStart && expense.paymentMethod === 'نقدي';
       })
       .reduce((sum, expense) => sum + expense.amount, 0);
-
     return {
       totalSales,
       servicesSales,
       productsSales,
       discounts,
       returns,
-      netSales,
+      netSales: totalSales - returns,
       cashPayments,
       cardPayments,
       instaPayPayments,
       transactionsCount: shiftSales.length,
       shiftExpenses,
     };
+  })();
+
+  // تفضيل البيانات الحقيقية من الـ API (الوردية) عند توفرها
+  const apiTotalSales = currentShift != null && typeof (currentShift as { totalSales?: number }).totalSales === 'number'
+    ? Number((currentShift as { totalSales?: number }).totalSales)
+    : null;
+  const apiSalesDetails = currentShift?.salesDetails as { cash?: number; card?: number; instapay?: number } | undefined;
+  const apiTotalExpenses = currentShift != null && typeof (currentShift as { totalExpenses?: number }).totalExpenses === 'number'
+    ? Number((currentShift as { totalExpenses?: number }).totalExpenses)
+    : null;
+  const hasApiData = apiTotalSales !== null || (apiSalesDetails && typeof apiSalesDetails.cash === 'number');
+
+  const stats = {
+    totalSales: hasApiData && apiTotalSales !== null ? apiTotalSales : derivedStats.totalSales,
+    servicesSales: derivedStats.servicesSales,
+    productsSales: derivedStats.productsSales,
+    discounts: derivedStats.discounts,
+    returns: derivedStats.returns,
+    netSales: hasApiData && apiTotalSales !== null ? apiTotalSales - derivedStats.discounts - derivedStats.returns : derivedStats.netSales,
+    cashPayments: (hasApiData && apiSalesDetails && typeof apiSalesDetails.cash === 'number') ? apiSalesDetails.cash : derivedStats.cashPayments,
+    cardPayments: (hasApiData && apiSalesDetails && typeof apiSalesDetails.card === 'number') ? apiSalesDetails.card : derivedStats.cardPayments,
+    instaPayPayments: (hasApiData && apiSalesDetails && typeof apiSalesDetails.instapay === 'number') ? apiSalesDetails.instapay : derivedStats.instaPayPayments,
+    transactionsCount: derivedStats.transactionsCount,
+    shiftExpenses: (hasApiData && apiTotalExpenses !== null) ? apiTotalExpenses : derivedStats.shiftExpenses,
   };
 
-  const stats = calculateStats();
-  
-  // الرصيد الافتتاحي
-  const openingBalance = currentShift?.startingCash || 0;
-  
-  // الكاش المتوقع = الرصيد الافتتاحي + المبيعات النقدية - المصروفات النقدية
+  const openingBalance = Number(currentShift?.startingCash ?? currentShift?.openingBalance ?? 0);
   const expectedCash = openingBalance + stats.cashPayments - stats.shiftExpenses;
   const actualCashNum = parseFloat(actualCash) || 0;
   const cashDifference = actualCashNum - expectedCash;
@@ -107,7 +112,7 @@ export default function ShiftClosingModal({ onClose, sales: shiftSales, currentS
   const handlePrintReport = () => {
     // Set page title for print
     const originalTitle = document.title;
-    document.title = `Shift Report - ${new Date().toLocaleDateString('en-US')} - ${currentUser?.firstName} ${currentUser?.lastName}`;
+    document.title = `Shift Report - ${new Date().toLocaleDateString('en-US')} - ${currentUser?.name ?? currentUser?.username ?? 'كاشير'}`;
     
     // Trigger print
     setTimeout(() => {
