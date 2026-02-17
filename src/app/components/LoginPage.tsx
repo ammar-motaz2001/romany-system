@@ -5,6 +5,7 @@ import { Button } from '@/app/components/ui/button';
 import { Input } from '@/app/components/ui/input';
 import { useApp } from '@/app/context/AppContext';
 import { useTranslation } from '@/app/hooks/useTranslation';
+import { getFirstAvailablePage } from '@/app/utils/permissions';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -17,7 +18,8 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (currentUser) {
-      navigate('/dashboard', { replace: true });
+      const firstAvailablePage = getFirstAvailablePage(currentUser);
+      navigate(firstAvailablePage, { replace: true });
     }
   }, [currentUser, navigate]);
 

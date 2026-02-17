@@ -15,7 +15,8 @@ export interface PurchaseInvoice {
   date: string;
   items: PurchaseInvoiceItem[];
   totalAmount: number;
-  paidAmount: number;
+  wholesaleAmount?: number;
+  saleAmount: number;
   remainingAmount: number;
   status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة';
   paymentMethod: 'نقدي' | 'آجل' | 'مختلط';
@@ -32,7 +33,8 @@ export interface CreatePurchaseInvoiceDTO {
     quantity: number;
     unitPrice: number;
   }>;
-  paidAmount?: number;
+  wholesaleAmount?: number;
+  saleAmount?: number;
   paymentMethod?: 'نقدي' | 'آجل' | 'مختلط';
   notes?: string;
 }
@@ -45,7 +47,8 @@ export interface UpdatePurchaseInvoiceDTO {
     quantity: number;
     unitPrice: number;
   }>;
-  paidAmount?: number;
+  wholesaleAmount?: number;
+  saleAmount?: number;
   paymentMethod?: 'نقدي' | 'آجل' | 'مختلط';
   notes?: string;
 }
@@ -59,7 +62,22 @@ class PurchaseInvoiceService {
   private getFromLocalStorage(): PurchaseInvoice[] {
     try {
       const data = localStorage.getItem(this.STORAGE_KEY);
-      return data ? JSON.parse(data) : [];
+      const invoices = data ? JSON.parse(data) : [];
+      // Migrate old invoices: convert paidAmount to saleAmount for backward compatibility
+      let needsMigration = false;
+      const migratedInvoices = invoices.map((invoice: any) => {
+        if (invoice.paidAmount !== undefined && invoice.saleAmount === undefined) {
+          invoice.saleAmount = invoice.paidAmount;
+          delete invoice.paidAmount;
+          needsMigration = true;
+        }
+        return invoice;
+      });
+      // Save migrated data back to localStorage
+      if (needsMigration) {
+        this.saveToLocalStorage(migratedInvoices);
+      }
+      return migratedInvoices;
     } catch {
       return [];
     }
@@ -171,13 +189,14 @@ class PurchaseInvoiceService {
         }));
         
         const totalAmount = itemsWithTotals.reduce((sum, item) => sum + item.totalPrice, 0);
-        const paidAmount = data.paidAmount || 0;
-        const remainingAmount = totalAmount - paidAmount;
+        const wholesaleAmount = data.wholesaleAmount || 0;
+        const saleAmount = data.saleAmount || 0;
+        const remainingAmount = totalAmount - saleAmount;
         
         let status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة' = 'غير مدفوعة';
-        if (paidAmount >= totalAmount) {
+        if (saleAmount >= totalAmount) {
           status = 'مدفوعة';
-        } else if (paidAmount > 0) {
+        } else if (saleAmount > 0) {
           status = 'جزئية';
         }
         
@@ -189,7 +208,8 @@ class PurchaseInvoiceService {
           date: data.date || new Date().toISOString().split('T')[0],
           items: itemsWithTotals,
           totalAmount,
-          paidAmount,
+          wholesaleAmount,
+          saleAmount,
           remainingAmount,
           status,
           paymentMethod: data.paymentMethod || 'نقدي',
@@ -236,13 +256,14 @@ class PurchaseInvoiceService {
           totalAmount = itemsWithTotals.reduce((sum, item) => sum + item.totalPrice, 0);
         }
         
-        const paidAmount = data.paidAmount !== undefined ? data.paidAmount : oldInvoice.paidAmount;
-        const remainingAmount = totalAmount - paidAmount;
+        const wholesaleAmount = data.wholesaleAmount !== undefined ? data.wholesaleAmount : (oldInvoice.wholesaleAmount || 0);
+        const saleAmount = data.saleAmount !== undefined ? data.saleAmount : (oldInvoice.saleAmount ?? (oldInvoice as any).paidAmount ?? 0);
+        const remainingAmount = totalAmount - saleAmount;
         
         let status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة' = 'غير مدفوعة';
-        if (paidAmount >= totalAmount) {
+        if (saleAmount >= totalAmount) {
           status = 'مدفوعة';
-        } else if (paidAmount > 0) {
+        } else if (saleAmount > 0) {
           status = 'جزئية';
         }
         
@@ -253,7 +274,8 @@ class PurchaseInvoiceService {
           date: data.date || oldInvoice.date,
           items: itemsWithTotals,
           totalAmount,
-          paidAmount,
+          wholesaleAmount,
+          saleAmount,
           remainingAmount,
           status,
           paymentMethod: data.paymentMethod || oldInvoice.paymentMethod,
@@ -295,19 +317,20 @@ class PurchaseInvoiceService {
         }
         
         const invoice = invoices[index];
-        const newPaidAmount = invoice.paidAmount + amount;
-        const newRemainingAmount = invoice.totalAmount - newPaidAmount;
+        const currentSaleAmount = invoice.saleAmount ?? (invoice as any).paidAmount ?? 0;
+        const newSaleAmount = currentSaleAmount + amount;
+        const newRemainingAmount = invoice.totalAmount - newSaleAmount;
         
         let status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة' = 'غير مدفوعة';
-        if (newPaidAmount >= invoice.totalAmount) {
+        if (newSaleAmount >= invoice.totalAmount) {
           status = 'مدفوعة';
-        } else if (newPaidAmount > 0) {
+        } else if (newSaleAmount > 0) {
           status = 'جزئية';
         }
         
         invoices[index] = {
           ...invoice,
-          paidAmount: newPaidAmount,
+          saleAmount: newSaleAmount,
           remainingAmount: newRemainingAmount,
           status,
           updatedAt: new Date().toISOString(),

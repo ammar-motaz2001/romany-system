@@ -224,7 +224,8 @@ interface PurchaseInvoice {
   date: string;
   items: { name: string; quantity: number; price: number }[];
   totalAmount: number;
-  paidAmount: number;
+  wholesaleAmount?: number;
+  saleAmount: number;
   paymentMethod?: string;
   status: 'مدفوعة' | 'جزئي' | 'غير مدفوعة';
   notes?: string;
@@ -776,7 +777,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         date: String(r.date ?? ''),
         items,
         totalAmount: Number(r.totalAmount ?? 0),
-        paidAmount: Number(r.paidAmount ?? 0),
+        wholesaleAmount: r.wholesaleAmount != null ? Number(r.wholesaleAmount) : undefined,
+        saleAmount: Number(r.saleAmount ?? r.paidAmount ?? 0),
         paymentMethod: (r.paymentMethod as PurchaseInvoice['paymentMethod']) ?? undefined,
         status,
         notes: (r.notes as string) ?? undefined,
@@ -2112,7 +2114,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           quantity: i.quantity,
           unitPrice: i.price,
         })),
-        paidAmount: invoice.paidAmount,
+        wholesaleAmount: invoice.wholesaleAmount,
+        saleAmount: invoice.saleAmount,
         paymentMethod: invoice.paymentMethod,
         notes: invoice.notes,
       });
@@ -2179,7 +2182,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           unitPrice: i.price,
         }));
       }
-      if (invoice.paidAmount != null) payload.paidAmount = invoice.paidAmount;
+      if (invoice.wholesaleAmount != null) payload.wholesaleAmount = invoice.wholesaleAmount;
+      if (invoice.saleAmount != null) payload.saleAmount = invoice.saleAmount;
       if (invoice.paymentMethod != null) payload.paymentMethod = invoice.paymentMethod;
       if (invoice.notes != null) payload.notes = invoice.notes;
 
