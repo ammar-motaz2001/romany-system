@@ -67,11 +67,17 @@ class PurchaseInvoiceService {
   private COUNTER_KEY = 'purchase_invoice_counter';
 
   // Helper methods for localStorage
-  /** Normalize invoice from API: ensure paidAmount exists (API may return paidAmount or saleAmount) */
+  /** Normalize invoice from API: ensure paidAmount, remainingAmount, and supplier ID (supplier may be populated object) */
   private normalizeInvoice(inv: Record<string, unknown>): PurchaseInvoice {
     const paid = Number(inv.paidAmount ?? inv.saleAmount ?? inv.paid_amount ?? 0);
+    const supplierRaw = inv.supplier;
+    const supplierId =
+      typeof supplierRaw === 'object' && supplierRaw !== null && '_id' in supplierRaw
+        ? String((supplierRaw as { _id: string })._id)
+        : String(supplierRaw ?? '');
     return {
       ...inv,
+      supplier: supplierId,
       paidAmount: paid,
       saleAmount: inv.saleAmount ?? paid,
       remainingAmount: Number(inv.remainingAmount ?? 0),

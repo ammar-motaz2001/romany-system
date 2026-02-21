@@ -139,13 +139,13 @@ export default function SuppliersPage() {
   const paidInvoices = purchaseInvoices.filter(i => i.status === 'مدفوعة').length;
   const unpaidInvoices = purchaseInvoices.filter(i => i.status === 'غير مدفوعة').length;
 
-  // Balance from مبلغ الجمله (wholesale) for التجار tab: per-supplier and total
-  const supplierBalanceFromWholesale = (supplierId: string) =>
+  // الرصيد in tab التجار = الباقي (remainingAmount) from that supplier's purchase invoices (not إجمالي الرصيد)
+  const supplierBalanceFromRemaining = (supplierId: string) =>
     purchaseInvoices
-      .filter(inv => inv.supplier === supplierId)
-      .reduce((sum, inv) => sum + (inv.wholesaleAmount ?? inv.totalAmount ?? 0), 0);
-  const totalBalanceFromWholesale = purchaseInvoices.reduce(
-    (sum, inv) => sum + (inv.wholesaleAmount ?? inv.totalAmount ?? 0),
+      .filter(inv => String(inv.supplier ?? (inv as any).supplier?._id ?? '') === String(supplierId))
+      .reduce((sum, inv) => sum + (inv.remainingAmount ?? 0), 0);
+  const totalBalanceFromRemaining = purchaseInvoices.reduce(
+    (sum, inv) => sum + (inv.remainingAmount ?? 0),
     0
   );
 
@@ -626,10 +626,10 @@ export default function SuppliersPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
-                    إجمالي الرصيد {activeTab === 'suppliers' ? '(من مبلغ الجمله)' : ''}
+                    إجمالي الرصيد
                   </p>
                   <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
-                    {(activeTab === 'suppliers' ? totalBalanceFromWholesale : totalBalance).toFixed(2)} ج.م
+                    {totalBalance.toFixed(2)} ج.م
                   </h3>
                 </div>
                 <div className="bg-purple-100 dark:bg-purple-900 p-3 rounded-xl">
@@ -731,7 +731,7 @@ export default function SuppliersPage() {
                         <td className="px-4 md:px-6 py-4 text-sm text-gray-600 dark:text-gray-400 hidden md:table-cell">{supplier.address || '-'}</td>
                         <td className="px-4 md:px-6 py-4 text-sm">
                           {(() => {
-                            const balance = supplierBalanceFromWholesale(supplier._id);
+                            const balance = supplierBalanceFromRemaining(supplier._id);
                             return (
                               <span className={`font-semibold ${balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
                                 {balance.toFixed(2)} ج.م
