@@ -564,13 +564,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const s = settingsRes.value as Record<string, unknown>;
         const wh = s.workingHours as Record<string, string> | undefined;
         const start =
+          (s.startTime as string) ??
           wh?.start ??
           (wh as Record<string, { open?: string }>)?.default?.open ??
           (wh as Record<string, string>)?.open;
         const end =
+          (s.endTime as string) ??
           wh?.end ??
           (wh as Record<string, { close?: string }>)?.default?.close ??
           (wh as Record<string, string>)?.close;
+        const inv = s.invoiceSettings as Record<string, unknown> | undefined;
+        const footerText = (inv?.footerText as string) ?? '';
         setSystemSettings((prev) => ({
           ...prev,
           shopName: (s.businessName as string) ?? prev.shopName,
@@ -582,6 +586,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           workingHours: {
             start: typeof start === 'string' ? start : (prev.workingHours?.start ?? '09:00'),
             end: typeof end === 'string' ? end : (prev.workingHours?.end ?? '21:00'),
+          },
+          invoiceSettings: {
+            ...prev.invoiceSettings,
+            footerText: typeof footerText === 'string' ? footerText : (prev.invoiceSettings?.footerText ?? ''),
           },
         }));
       }
@@ -2618,7 +2626,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // System Settings - integrated with API
   const updateSystemSettings = async (settings: Partial<SystemSettings>) => {
     try {
-      const payload = {
+      const startTime = settings.workingHours?.start ?? (settings as Record<string, unknown>).startTime as string | undefined;
+      const endTime = settings.workingHours?.end ?? (settings as Record<string, unknown>).endTime as string | undefined;
+      const payload: Record<string, unknown> = {
         businessName: settings.shopName,
         businessAddress: settings.address,
         businessPhone: settings.phone,
@@ -2627,7 +2637,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         language: settings.language,
         workingHours: settings.workingHours,
       };
-      await settingService.updateSettings(payload);
+      if (startTime != null) payload.startTime = startTime;
+      if (endTime != null) payload.endTime = endTime;
+      if (settings.invoiceSettings != null) {
+        payload.invoiceSettings = { ...settings.invoiceSettings };
+      }
+      await settingService.updateSettings(payload as Partial<import('@/services/setting.service').SystemSettings>);
       setSystemSettings((prev) => ({ ...prev, ...settings }));
       toast.success('تم تحديث الإعدادات بنجاح');
     } catch (error: unknown) {

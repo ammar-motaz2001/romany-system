@@ -48,7 +48,7 @@ export default function SettingsPage() {
   // System Settings Form – synced from API (systemSettings) so start/end time are dynamic
   const [systemForm, setSystemForm] = useState(systemSettings);
 
-  // Sync form when systemSettings loads from API (وقت بداية/نهاية العمل dynamic from endpoint)
+  // Sync form when systemSettings loads from API (وقت البداية، وقت النهاية، نص التذييل dynamic from endpoint)
   useEffect(() => {
     setSystemForm(prev => ({
       ...prev,
@@ -56,6 +56,9 @@ export default function SettingsPage() {
       workingHours: systemSettings.workingHours
         ? { ...systemSettings.workingHours }
         : { start: '09:00', end: '21:00' },
+      invoiceSettings: systemSettings.invoiceSettings
+        ? { ...prev.invoiceSettings, ...systemSettings.invoiceSettings }
+        : prev.invoiceSettings,
     }));
   }, [systemSettings]);
 

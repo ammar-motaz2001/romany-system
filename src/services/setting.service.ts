@@ -24,11 +24,14 @@ export interface SystemSettings {
     acceptCard?: boolean;
     acceptInstaPay?: boolean;
   };
+  startTime?: string;
+  endTime?: string;
   invoiceSettings?: {
     showLogo?: boolean;
     showTaxNumber?: boolean;
     showTerms?: boolean;
     termsText?: string;
+    footerText?: string;
   };
   notificationSettings?: {
     emailNotifications?: boolean;
@@ -43,15 +46,43 @@ export interface SystemSettings {
   };
 }
 
+/** Display-only settings (for invoices/header) */
+export interface DisplaySettings {
+  startTime?: string;
+  endTime?: string;
+  footerText?: string;
+  shopName?: string;
+  address?: string;
+  phone?: string;
+}
+
 class SettingService {
-  // Get all settings
+  /** Get full settings (for الإعدادات العامة form). Handles { success, data } response. */
   async getSettings(): Promise<SystemSettings> {
-    return apiService.get<SystemSettings>(API_ENDPOINTS.SETTINGS.GET);
+    const res = await apiService.get<{ success?: boolean; data?: SystemSettings } | SystemSettings>(
+      API_ENDPOINTS.SETTINGS.GET
+    );
+    const data = res && typeof res === 'object' && 'data' in res && res.data != null ? res.data : res;
+    return (data as SystemSettings) ?? {};
   }
 
-  // Update settings
-  async updateSettings(data: Partial<SystemSettings>): Promise<SystemSettings> {
-    return apiService.put<SystemSettings>(API_ENDPOINTS.SETTINGS.UPDATE, data);
+  /** Get display-only settings (for invoices/header). Handles { success, data } response. */
+  async getDisplaySettings(): Promise<DisplaySettings> {
+    const res = await apiService.get<{ success?: boolean; data?: DisplaySettings } | DisplaySettings>(
+      API_ENDPOINTS.SETTINGS.GET_DISPLAY
+    );
+    const data = res && typeof res === 'object' && 'data' in res && res.data != null ? res.data : res;
+    return (data as DisplaySettings) ?? {};
+  }
+
+  /** Update settings (PUT). Send startTime, endTime, invoiceSettings.footerText and/or full object. */
+  async updateSettings(data: Partial<SystemSettings> & { startTime?: string; endTime?: string }): Promise<SystemSettings> {
+    const res = await apiService.put<{ success?: boolean; data?: SystemSettings } | SystemSettings>(
+      API_ENDPOINTS.SETTINGS.UPDATE,
+      data
+    );
+    const out = res && typeof res === 'object' && 'data' in res && res.data != null ? res.data : res;
+    return (out as SystemSettings) ?? {};
   }
 
   // Update business settings

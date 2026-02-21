@@ -129,6 +129,7 @@ export const API_ENDPOINTS = {
   // Settings
   SETTINGS: {
     GET: '/settings',
+    GET_DISPLAY: '/settings/display',
     UPDATE: '/settings',
     BUSINESS: '/settings/business',
     WORKING_HOURS: '/settings/working-hours',
