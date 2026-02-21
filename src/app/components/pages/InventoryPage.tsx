@@ -4,7 +4,11 @@ import { Card } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
 import Header from '@/app/components/Header';
 import AddInventoryDialog from '@/app/components/dialogs/AddInventoryDialog';
+import { ImageWithFallback } from '@/app/components/figma/ImageWithFallback';
 import { useApp } from '@/app/context/AppContext';
+
+const DEFAULT_INVENTORY_IMAGE =
+  'https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=400';
 
 export default function InventoryPage() {
   const { inventory, searchQuery, deleteInventoryItem } = useApp();
@@ -115,10 +119,10 @@ export default function InventoryPage() {
           {filteredInventory.map((item) => (
             <Card key={item.id} className="overflow-hidden">
               <div className="flex items-center gap-3 p-4">
-                <img
-                  src={item.image}
+                <ImageWithFallback
+                  src={item.image || DEFAULT_INVENTORY_IMAGE}
                   alt={item.name}
-                  className="w-12 h-12 rounded-lg object-cover"
+                  className="w-12 h-12 rounded-lg object-cover bg-gray-100 dark:bg-gray-700"
                 />
                 <div>
                   <h4 className="font-medium text-gray-900">{item.name}</h4>
