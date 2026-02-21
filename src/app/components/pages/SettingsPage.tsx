@@ -45,8 +45,19 @@ export default function SettingsPage() {
     confirmPassword: '',
   });
 
-  // System Settings Form
+  // System Settings Form – synced from API (systemSettings) so start/end time are dynamic
   const [systemForm, setSystemForm] = useState(systemSettings);
+
+  // Sync form when systemSettings loads from API (وقت بداية/نهاية العمل dynamic from endpoint)
+  useEffect(() => {
+    setSystemForm(prev => ({
+      ...prev,
+      ...systemSettings,
+      workingHours: systemSettings.workingHours
+        ? { ...systemSettings.workingHours }
+        : { start: '09:00', end: '21:00' },
+    }));
+  }, [systemSettings]);
 
   // User Management
   const [showAddUserDialog, setShowAddUserDialog] = useState(false);

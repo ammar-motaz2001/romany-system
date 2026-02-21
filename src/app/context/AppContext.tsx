@@ -560,6 +560,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
       if (settingsRes.status === 'fulfilled' && settingsRes.value) {
         const s = settingsRes.value as Record<string, unknown>;
+        const wh = s.workingHours as Record<string, string> | undefined;
+        const start =
+          wh?.start ??
+          (wh as Record<string, { open?: string }>)?.default?.open ??
+          (wh as Record<string, string>)?.open;
+        const end =
+          wh?.end ??
+          (wh as Record<string, { close?: string }>)?.default?.close ??
+          (wh as Record<string, string>)?.close;
         setSystemSettings((prev) => ({
           ...prev,
           shopName: (s.businessName as string) ?? prev.shopName,
@@ -568,6 +577,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           email: (s.businessEmail as string) ?? prev.email,
           currency: (s.currency as string) ?? prev.currency,
           language: (s.language as string) ?? prev.language,
+          workingHours: {
+            start: typeof start === 'string' ? start : (prev.workingHours?.start ?? '09:00'),
+            end: typeof end === 'string' ? end : (prev.workingHours?.end ?? '21:00'),
+          },
         }));
       }
       if (usersRes.status === 'fulfilled' && usersRes.value) {
