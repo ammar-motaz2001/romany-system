@@ -371,8 +371,8 @@ export default function SuppliersPage() {
 
         <div class="totals">
           <div class="row">
-            <span>الإجمالي الكلي:</span>
-            <span>${invoice.totalAmount.toFixed(2)} ج.م</span>
+            <span>الإجمالي الكلي (الباقي):</span>
+            <span>${invoice.remainingAmount.toFixed(2)} ج.م</span>
           </div>
           <div class="row">
             <span>مبلغ الجمله:</span>
@@ -1095,9 +1095,12 @@ export default function SuppliersPage() {
 
                   <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border-2 border-purple-200 dark:border-purple-800">
                     <div className="flex justify-between items-center">
-                      <span className="text-lg font-semibold text-purple-900 dark:text-purple-100">الإجمالي الكلي:</span>
+                      <span className="text-lg font-semibold text-purple-900 dark:text-purple-100">الإجمالي الكلي (الباقي):</span>
                       <span className="text-2xl font-bold text-purple-900 dark:text-purple-100">
-                        {calculateInvoiceTotal().toFixed(2)} ج.م
+                        {(
+                          (invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : calculateInvoiceTotal()) -
+                          invoiceForm.paidAmount
+                        ).toFixed(2)} ج.م
                       </span>
                     </div>
                   </div>
@@ -1250,8 +1253,8 @@ export default function SuppliersPage() {
 
                 <div className="space-y-3 p-5 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-xl border border-purple-200 dark:border-purple-800">
                   <div className="flex justify-between text-base">
-                    <span className="text-gray-700 dark:text-gray-300">الإجمالي الكلي:</span>
-                    <span className="font-semibold text-gray-900 dark:text-gray-100 font-mono">{selectedInvoice.totalAmount.toFixed(2)} ج.م</span>
+                    <span className="text-gray-700 dark:text-gray-300">الإجمالي الكلي (الباقي):</span>
+                    <span className="font-semibold text-gray-900 dark:text-gray-100 font-mono">{selectedInvoice.remainingAmount.toFixed(2)} ج.م</span>
                   </div>
                   <div className="flex justify-between text-base">
                     <span className="text-gray-700 dark:text-gray-300">مبلغ الجمله:</span>
