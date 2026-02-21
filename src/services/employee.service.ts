@@ -27,6 +27,9 @@ export interface CreateEmployeeData {
   commission?: number;
   startDate?: string;
   hireDate?: string;
+  latePenaltyPerMinute?: number;
+  absencePenaltyPerDay?: number;
+  customDeductions?: number;
 }
 
 export interface UpdateEmployeeData extends Partial<CreateEmployeeData> {

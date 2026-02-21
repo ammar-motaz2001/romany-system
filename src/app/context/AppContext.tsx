@@ -465,6 +465,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       showPhone: true,
       showEmail: true,
       footer: '',
+      footerText: 'شكراً لزيارتك!',
     },
   });
 
@@ -1832,7 +1833,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      const created = await employeeService.createEmployee({
+      const createPayload: Record<string, unknown> = {
         name: employee.name,
         position: employee.position,
         phone: employee.phone,
@@ -1841,12 +1842,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         commission: employee.commission ?? 0,
         startDate: hireDateStr,
         hireDate: hireDateStr,
-      });
+      };
+      if (employee.latePenaltyPerMinute != null) createPayload.latePenaltyPerMinute = employee.latePenaltyPerMinute;
+      if (employee.absencePenaltyPerDay != null) createPayload.absencePenaltyPerDay = employee.absencePenaltyPerDay;
+      const created = await employeeService.createEmployee(createPayload);
       const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
       const mapped = raw ? mapBackendEmployeesToContext([raw])[0] : null;
       const id = mapped?.id || String(raw?.id ?? raw?._id ?? Date.now());
+      const defaults = {
+        latePenaltyPerMinute: employee.latePenaltyPerMinute ?? 10,
+        absencePenaltyPerDay: employee.absencePenaltyPerDay ?? 200,
+        customDeductions: employee.customDeductions ?? 0,
+      };
       const toAdd: Employee = mapped && mapped.id
-        ? mapped
+        ? { ...mapped, ...defaults }
         : {
             id,
             name: employee.name,
@@ -1860,9 +1869,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             hourlyRate: employee.hourlyRate,
             commission: employee.commission ?? 0,
             status: employee.status ?? 'نشط',
-            latePenaltyPerMinute: employee.latePenaltyPerMinute,
-            absencePenaltyPerDay: employee.absencePenaltyPerDay,
-            customDeductions: employee.customDeductions,
+            ...defaults,
           };
       setEmployees((prev) => [...prev, toAdd]);
       addNotification({

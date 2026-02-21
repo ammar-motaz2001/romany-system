@@ -10,7 +10,7 @@ import purchaseInvoiceService, { PurchaseInvoice, CreatePurchaseInvoiceDTO } fro
 import { useApp } from '@/app/context/AppContext';
 
 export default function SuppliersPage() {
-  const { inventory, addInventoryItem, updateInventoryItem } = useApp();
+  const { inventory, addInventoryItem, updateInventoryItem, systemSettings } = useApp();
   const [activeTab, setActiveTab] = useState<'suppliers' | 'invoices'>('suppliers');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSupplierDialog, setShowSupplierDialog] = useState(false);
@@ -316,6 +316,19 @@ export default function SuppliersPage() {
             padding-top: 10px;
             margin-top: 10px;
           }
+          .footer {
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #e5e7eb;
+            text-align: center;
+            color: #6b7280;
+            font-size: 14px;
+          }
+          .footer .thank-you {
+            font-size: 18px;
+            color: #9333ea;
+            font-weight: bold;
+          }
           @media print {
             body {
               padding: 0;
@@ -397,6 +410,10 @@ export default function SuppliersPage() {
             <p style="margin: 5px 0 0 0; color: #1f2937;">${invoice.notes}</p>
           </div>
         ` : ''}
+
+        <div class="footer">
+          <div class="thank-you">${(systemSettings?.invoiceSettings?.footerText ?? 'شكراً لتعاملكم معنا').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+        </div>
 
         <script>
           window.onload = function() {

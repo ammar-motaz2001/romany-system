@@ -169,27 +169,16 @@ export default function EmployeesPage() {
                   </div>
                 )}
 
-                {/* Penalties Display */}
-                {(employee.latePenaltyPerMinute > 0 || employee.absencePenaltyPerDay > 0 || employee.customDeductions > 0) && (
-                  <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-                    <p className="text-xs font-semibold text-orange-600 mb-2">الجزاءات والخصومات:</p>
-                    {employee.latePenaltyPerMinute > 0 && (
-                      <div className="text-xs text-gray-600 dark:text-gray-400">
-                        🕐 التأخير: {employee.latePenaltyPerMinute} ج.م/دقيقة
-                      </div>
-                    )}
-                    {employee.absencePenaltyPerDay > 0 && (
-                      <div className="text-xs text-gray-600 dark:text-gray-400">
-                        ❌ الغياب: {employee.absencePenaltyPerDay} ج.م/يوم
-                      </div>
-                    )}
-                    {employee.customDeductions > 0 && (
-                      <div className="text-xs text-gray-600 dark:text-gray-400">
-                        💸 خصومات أخرى: {employee.customDeductions} ج.م
-                      </div>
-                    )}
+                {/* Penalties & Deductions — always visible on card (directly after add) */}
+                <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                  <p className="text-xs font-semibold text-orange-600 mb-2">الجزاءات والخصومات:</p>
+                  <div className="text-xs text-gray-600 dark:text-gray-400">
+                    🕐 التأخير: {Number(employee.latePenaltyPerMinute) ?? 10} ج.م/دقيقة
                   </div>
-                )}
+                  <div className="text-xs text-gray-600 dark:text-gray-400">
+                    ❌ الغياب: {Number(employee.absencePenaltyPerDay) ?? 200} ج.م/يوم
+                  </div>
+                </div>
               </div>
 
               {/* Actions */}
@@ -263,9 +252,9 @@ function EmployeeDialog({ employee, onClose, onSave }: any) {
     hourlyRate: employee?.hourlyRate || 0,
     commission: employee?.commission || 0,
     status: employee?.status || 'نشط',
-    latePenaltyPerMinute: employee?.latePenaltyPerMinute || 0,
-    absencePenaltyPerDay: employee?.absencePenaltyPerDay || 0,
-    customDeductions: employee?.customDeductions || 0,
+    latePenaltyPerMinute: employee != null ? (employee.latePenaltyPerMinute ?? 0) : 10,
+    absencePenaltyPerDay: employee != null ? (employee.absencePenaltyPerDay ?? 0) : 200,
+    customDeductions: employee?.customDeductions ?? 0,
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -352,6 +341,63 @@ function EmployeeDialog({ employee, onClose, onSave }: any) {
                   required
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Penalties & Deductions — shown directly when adding or editing */}
+          <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+            <h3 className="font-bold text-gray-900 dark:text-white mb-4">⚠️ الجزاءات والخصومات</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  خصم التأخير (ج.م / دقيقة)
+                </label>
+                <Input
+                  type="number"
+                  value={formData.latePenaltyPerMinute}
+                  onChange={(e) => setFormData({ ...formData, latePenaltyPerMinute: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  min="0"
+                  step="0.1"
+                  dir="rtl"
+                />
+                <p className="text-xs text-gray-500 mt-1">سيتم خصمها تلقائياً عند التأخير</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  خصم الغياب (ج.م / يوم)
+                </label>
+                <Input
+                  type="number"
+                  value={formData.absencePenaltyPerDay}
+                  onChange={(e) => setFormData({ ...formData, absencePenaltyPerDay: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  min="0"
+                  step="0.5"
+                  dir="rtl"
+                />
+                <p className="text-xs text-gray-500 mt-1">سيتم خصمها عند الغياب</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  خصومات أخرى (ج.م)
+                </label>
+                <Input
+                  type="number"
+                  value={formData.customDeductions}
+                  onChange={(e) => setFormData({ ...formData, customDeductions: parseFloat(e.target.value) || 0 })}
+                  placeholder="0"
+                  min="0"
+                  step="0.5"
+                  dir="rtl"
+                />
+                <p className="text-xs text-gray-500 mt-1">خصومات ثابتة شهرية</p>
+              </div>
+            </div>
+            <div className="mt-3 p-3 bg-orange-100 dark:bg-orange-800/30 rounded-lg">
+              <p className="text-xs text-orange-800 dark:text-orange-200">
+                💡 <strong>ملاحظة:</strong> هذه القيم قابلة للتخصيص لكل موظف على حدة. ستظهر تلقائياً في تقارير الرواتب والحضور والانصراف.
+              </p>
             </div>
           </div>
 
@@ -463,67 +509,6 @@ function EmployeeDialog({ employee, onClose, onSave }: any) {
                   <option value="موقوف">موقوف</option>
                 </select>
               </div>
-            </div>
-          </div>
-
-          {/* Penalties & Deductions */}
-          <div className="p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-            <h3 className="font-bold text-gray-900 dark:text-white mb-4">⚠️ الجزاءات والخصومات</h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  خصم التأخير (ج.م / دقيقة)
-                </label>
-                <Input
-                  type="number"
-                  value={formData.latePenaltyPerMinute}
-                  onChange={(e) => setFormData({ ...formData, latePenaltyPerMinute: parseFloat(e.target.value) || 0 })}
-                  placeholder="0"
-                  min="0"
-                  step="0.1"
-                  dir="rtl"
-                />
-                <p className="text-xs text-gray-500 mt-1">سيتم خصمها تلقائياً عند التأخير</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  خصم الغياب (ج.م / يوم)
-                </label>
-                <Input
-                  type="number"
-                  value={formData.absencePenaltyPerDay}
-                  onChange={(e) => setFormData({ ...formData, absencePenaltyPerDay: parseFloat(e.target.value) || 0 })}
-                  placeholder="0"
-                  min="0"
-                  step="0.5"
-                  dir="rtl"
-                />
-                <p className="text-xs text-gray-500 mt-1">سيتم خصمها عند الغياب</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  خصومات أخرى (ج.م)
-                </label>
-                <Input
-                  type="number"
-                  value={formData.customDeductions}
-                  onChange={(e) => setFormData({ ...formData, customDeductions: parseFloat(e.target.value) || 0 })}
-                  placeholder="0"
-                  min="0"
-                  step="0.5"
-                  dir="rtl"
-                />
-                <p className="text-xs text-gray-500 mt-1">خصومات ثابتة شهرية</p>
-              </div>
-            </div>
-
-            <div className="mt-3 p-3 bg-orange-100 dark:bg-orange-800/30 rounded-lg">
-              <p className="text-xs text-orange-800 dark:text-orange-200">
-                💡 <strong>ملاحظة:</strong> هذه القيم قابلة للتخصيص لكل موظف على حدة. ستظهر تلقائياً في تقارير الرواتب والحضور والانصراف.
-              </p>
             </div>
           </div>
 

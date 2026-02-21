@@ -489,8 +489,7 @@ export default function InvoicesPage() {
         ` : ''}
 
         <div class="footer">
-          <div class="thank-you">شكراً لتعاملكم معنا</div>
-          <div>نتمنى لكم تجربة رائعة ونراكم قريباً</div>
+          <div class="thank-you">${(systemSettings.invoiceSettings?.footerText ?? 'شكراً لتعاملكم معنا').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
           ${systemSettings.email ? `<div style="margin-top: 10px;">${systemSettings.email}</div>` : ''}
         </div>
 
