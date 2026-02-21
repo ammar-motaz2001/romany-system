@@ -16,8 +16,13 @@ export interface PurchaseInvoice {
   items: PurchaseInvoiceItem[];
   totalAmount: number;
   wholesaleAmount?: number;
-  saleAmount: number;
+  /** المدفوع – from API; backend also may return as paidAmount */
+  paidAmount: number;
+  /** Alias for paidAmount when reading from API that uses saleAmount */
+  saleAmount?: number;
+  /** الباقي – from API only, do not compute on frontend */
   remainingAmount: number;
+  /** الحالة – from API only */
   status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة';
   paymentMethod: 'نقدي' | 'آجل' | 'مختلط';
   notes?: string;
@@ -33,8 +38,10 @@ export interface CreatePurchaseInvoiceDTO {
     quantity: number;
     unitPrice: number;
   }>;
+  /** مبلغ الجمله */
   wholesaleAmount?: number;
-  saleAmount?: number;
+  /** المدفوع – required for API */
+  paidAmount: number;
   paymentMethod?: 'نقدي' | 'آجل' | 'مختلط';
   notes?: string;
 }
@@ -48,7 +55,8 @@ export interface UpdatePurchaseInvoiceDTO {
     unitPrice: number;
   }>;
   wholesaleAmount?: number;
-  saleAmount?: number;
+  /** المدفوع – backend also accepts saleAmount / paid_amount */
+  paidAmount?: number;
   paymentMethod?: 'نقدي' | 'آجل' | 'مختلط';
   notes?: string;
 }
@@ -59,25 +67,28 @@ class PurchaseInvoiceService {
   private COUNTER_KEY = 'purchase_invoice_counter';
 
   // Helper methods for localStorage
+  /** Normalize invoice from API: ensure paidAmount exists (API may return paidAmount or saleAmount) */
+  private normalizeInvoice(inv: Record<string, unknown>): PurchaseInvoice {
+    const paid = Number(inv.paidAmount ?? inv.saleAmount ?? inv.paid_amount ?? 0);
+    return {
+      ...inv,
+      paidAmount: paid,
+      saleAmount: inv.saleAmount ?? paid,
+      remainingAmount: Number(inv.remainingAmount ?? 0),
+      status: (inv.status as PurchaseInvoice['status']) || 'غير مدفوعة',
+    } as PurchaseInvoice;
+  }
+
+  private normalizeInvoicesList(data: unknown): PurchaseInvoice[] {
+    const list = Array.isArray(data) ? data : [];
+    return list.map((inv: Record<string, unknown>) => this.normalizeInvoice(inv));
+  }
+
   private getFromLocalStorage(): PurchaseInvoice[] {
     try {
       const data = localStorage.getItem(this.STORAGE_KEY);
       const invoices = data ? JSON.parse(data) : [];
-      // Migrate old invoices: convert paidAmount to saleAmount for backward compatibility
-      let needsMigration = false;
-      const migratedInvoices = invoices.map((invoice: any) => {
-        if (invoice.paidAmount !== undefined && invoice.saleAmount === undefined) {
-          invoice.saleAmount = invoice.paidAmount;
-          delete invoice.paidAmount;
-          needsMigration = true;
-        }
-        return invoice;
-      });
-      // Save migrated data back to localStorage
-      if (needsMigration) {
-        this.saveToLocalStorage(migratedInvoices);
-      }
-      return migratedInvoices;
+      return invoices.map((inv: any) => this.normalizeInvoice(inv));
     } catch {
       return [];
     }
@@ -133,7 +144,7 @@ class PurchaseInvoiceService {
   async getAllInvoices(): Promise<PurchaseInvoice[]> {
     try {
       const response = await api.get<{ success: boolean; data: PurchaseInvoice[] }>(this.baseURL);
-      return response.data;
+      return this.normalizeInvoicesList(response.data);
     } catch (error: any) {
       if (error.response?.status === 404 || !error.response) {
         console.log('Using localStorage for invoices (backend not available)');
@@ -146,7 +157,7 @@ class PurchaseInvoiceService {
   async getInvoiceById(id: string): Promise<PurchaseInvoice> {
     try {
       const response = await api.get<{ success: boolean; data: PurchaseInvoice }>(`${this.baseURL}/${id}`);
-      return response.data;
+      return this.normalizeInvoice(response.data as unknown as Record<string, unknown>);
     } catch (error: any) {
       if (error.response?.status === 404 || !error.response) {
         const invoices = this.getFromLocalStorage();
@@ -162,8 +173,10 @@ class PurchaseInvoiceService {
 
   async getInvoicesBySupplier(supplierId: string): Promise<PurchaseInvoice[]> {
     try {
-      const response = await api.get<{ success: boolean; data: PurchaseInvoice[] }>(`${this.baseURL}/supplier/${supplierId}`);
-      return response.data;
+      const response = await api.get<{ success: boolean; data: PurchaseInvoice[] }>(
+        `${this.baseURL}/supplier/${supplierId}`
+      );
+      return this.normalizeInvoicesList(response.data);
     } catch (error: any) {
       if (error.response?.status === 404 || !error.response) {
         const invoices = this.getFromLocalStorage();
@@ -174,32 +187,36 @@ class PurchaseInvoiceService {
   }
 
   async createInvoice(data: CreatePurchaseInvoiceDTO): Promise<PurchaseInvoice> {
+    const payload = {
+      supplier: data.supplier,
+      date: data.date,
+      items: data.items,
+      wholesaleAmount: data.wholesaleAmount ?? 0,
+      paidAmount: data.paidAmount,
+      paymentMethod: data.paymentMethod,
+      notes: data.notes,
+    };
     try {
-      const response = await api.post<{ success: boolean; data: PurchaseInvoice }>(this.baseURL, data);
-      return response.data;
+      const response = await api.post<{ success: boolean; data: PurchaseInvoice }>(
+        this.baseURL,
+        payload
+      );
+      return this.normalizeInvoice(response.data as unknown as Record<string, unknown>);
     } catch (error: any) {
       if (error.response?.status === 404 || !error.response) {
-        // Create in localStorage
         const invoices = this.getFromLocalStorage();
-        
-        // Calculate totals
         const itemsWithTotals = data.items.map(item => ({
           ...item,
           totalPrice: item.quantity * item.unitPrice,
         }));
-        
         const totalAmount = itemsWithTotals.reduce((sum, item) => sum + item.totalPrice, 0);
-        const wholesaleAmount = data.wholesaleAmount || 0;
-        const saleAmount = data.saleAmount || 0;
-        const remainingAmount = totalAmount - saleAmount;
-        
+        const wholesaleAmount = data.wholesaleAmount ?? 0;
+        const effectiveTotal = wholesaleAmount > 0 ? wholesaleAmount : totalAmount;
+        const paid = data.paidAmount;
+        const remainingAmount = effectiveTotal - paid;
         let status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة' = 'غير مدفوعة';
-        if (saleAmount >= totalAmount) {
-          status = 'مدفوعة';
-        } else if (saleAmount > 0) {
-          status = 'جزئية';
-        }
-        
+        if (paid >= effectiveTotal) status = 'مدفوعة';
+        else if (paid > 0) status = 'جزئية';
         const newInvoice: PurchaseInvoice = {
           _id: Date.now().toString(),
           invoiceNumber: this.getNextInvoiceNumber(),
@@ -209,7 +226,7 @@ class PurchaseInvoiceService {
           items: itemsWithTotals,
           totalAmount,
           wholesaleAmount,
-          saleAmount,
+          paidAmount: paid,
           remainingAmount,
           status,
           paymentMethod: data.paymentMethod || 'نقدي',
@@ -217,13 +234,9 @@ class PurchaseInvoiceService {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        
         invoices.push(newInvoice);
         this.saveToLocalStorage(invoices);
-        
-        // Update supplier balance
         this.updateSupplierBalance(data.supplier, remainingAmount);
-        
         return newInvoice;
       }
       throw error;
@@ -231,58 +244,53 @@ class PurchaseInvoiceService {
   }
 
   async updateInvoice(id: string, data: UpdatePurchaseInvoiceDTO): Promise<PurchaseInvoice> {
+    const payload: Record<string, unknown> = { ...data };
+    if (data.paidAmount !== undefined) {
+      payload.paidAmount = data.paidAmount;
+    }
     try {
-      const response = await api.put<{ success: boolean; data: PurchaseInvoice }>(`${this.baseURL}/${id}`, data);
-      return response.data;
+      const response = await api.put<{ success: boolean; data: PurchaseInvoice }>(
+        `${this.baseURL}/${id}`,
+        payload
+      );
+      return this.normalizeInvoice(response.data as unknown as Record<string, unknown>);
     } catch (error: any) {
       if (error.response?.status === 404 || !error.response) {
         const invoices = this.getFromLocalStorage();
         const index = invoices.findIndex(i => i._id === id);
-        if (index === -1) {
-          throw new Error('الفاتورة غير موجودة');
-        }
-        
+        if (index === -1) throw new Error('الفاتورة غير موجودة');
         const oldInvoice = invoices[index];
-        
-        // Calculate new totals if items changed
         let itemsWithTotals = oldInvoice.items;
         let totalAmount = oldInvoice.totalAmount;
-        
-        if (data.items) {
+        if (data.items?.length) {
           itemsWithTotals = data.items.map(item => ({
             ...item,
             totalPrice: item.quantity * item.unitPrice,
           }));
           totalAmount = itemsWithTotals.reduce((sum, item) => sum + item.totalPrice, 0);
         }
-        
-        const wholesaleAmount = data.wholesaleAmount !== undefined ? data.wholesaleAmount : (oldInvoice.wholesaleAmount || 0);
-        const saleAmount = data.saleAmount !== undefined ? data.saleAmount : (oldInvoice.saleAmount ?? (oldInvoice as any).paidAmount ?? 0);
-        const remainingAmount = totalAmount - saleAmount;
-        
+        const wholesaleAmount = data.wholesaleAmount ?? oldInvoice.wholesaleAmount ?? 0;
+        const effectiveTotal = wholesaleAmount > 0 ? wholesaleAmount : totalAmount;
+        const paid = data.paidAmount ?? oldInvoice.paidAmount;
+        const remainingAmount = effectiveTotal - paid;
         let status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة' = 'غير مدفوعة';
-        if (saleAmount >= totalAmount) {
-          status = 'مدفوعة';
-        } else if (saleAmount > 0) {
-          status = 'جزئية';
-        }
-        
+        if (paid >= effectiveTotal) status = 'مدفوعة';
+        else if (paid > 0) status = 'جزئية';
         invoices[index] = {
           ...oldInvoice,
-          supplier: data.supplier || oldInvoice.supplier,
+          supplier: data.supplier ?? oldInvoice.supplier,
           supplierName: data.supplier ? this.getSupplierNameFromId(data.supplier) : oldInvoice.supplierName,
-          date: data.date || oldInvoice.date,
+          date: data.date ?? oldInvoice.date,
           items: itemsWithTotals,
           totalAmount,
           wholesaleAmount,
-          saleAmount,
+          paidAmount: paid,
           remainingAmount,
           status,
-          paymentMethod: data.paymentMethod || oldInvoice.paymentMethod,
+          paymentMethod: data.paymentMethod ?? oldInvoice.paymentMethod,
           notes: data.notes !== undefined ? data.notes : oldInvoice.notes,
           updatedAt: new Date().toISOString(),
         };
-        
         this.saveToLocalStorage(invoices);
         return invoices[index];
       }
@@ -306,36 +314,33 @@ class PurchaseInvoiceService {
 
   async addPayment(id: string, amount: number): Promise<PurchaseInvoice> {
     try {
-      const response = await api.put<{ success: boolean; data: PurchaseInvoice }>(`${this.baseURL}/${id}/payment`, { amount });
-      return response.data;
+      const response = await api.put<{ success: boolean; data: PurchaseInvoice }>(
+        `${this.baseURL}/${id}/payment`,
+        { amount }
+      );
+      return this.normalizeInvoice(response.data as unknown as Record<string, unknown>);
     } catch (error: any) {
       if (error.response?.status === 404 || !error.response) {
         const invoices = this.getFromLocalStorage();
         const index = invoices.findIndex(i => i._id === id);
-        if (index === -1) {
-          throw new Error('الفاتورة غير موجودة');
-        }
-        
+        if (index === -1) throw new Error('الفاتورة غير موجودة');
         const invoice = invoices[index];
-        const currentSaleAmount = invoice.saleAmount ?? (invoice as any).paidAmount ?? 0;
-        const newSaleAmount = currentSaleAmount + amount;
-        const newRemainingAmount = invoice.totalAmount - newSaleAmount;
-        
+        const effectiveTotal =
+          (invoice.wholesaleAmount && invoice.wholesaleAmount > 0)
+            ? invoice.wholesaleAmount
+            : invoice.totalAmount;
+        const newPaid = invoice.paidAmount + amount;
+        const newRemaining = Math.max(0, effectiveTotal - newPaid);
         let status: 'مدفوعة' | 'جزئية' | 'غير مدفوعة' = 'غير مدفوعة';
-        if (newSaleAmount >= invoice.totalAmount) {
-          status = 'مدفوعة';
-        } else if (newSaleAmount > 0) {
-          status = 'جزئية';
-        }
-        
+        if (newPaid >= effectiveTotal) status = 'مدفوعة';
+        else if (newPaid > 0) status = 'جزئية';
         invoices[index] = {
           ...invoice,
-          saleAmount: newSaleAmount,
-          remainingAmount: newRemainingAmount,
+          paidAmount: newPaid,
+          remainingAmount: newRemaining,
           status,
           updatedAt: new Date().toISOString(),
         };
-        
         this.saveToLocalStorage(invoices);
         return invoices[index];
       }

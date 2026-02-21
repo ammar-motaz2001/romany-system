@@ -2106,6 +2106,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Purchase Invoices functions - integrated with API
   const addPurchaseInvoice = async (invoice: Omit<PurchaseInvoice, 'id'>) => {
     try {
+      const paid = invoice.paidAmount ?? invoice.saleAmount ?? 0;
       const created = await purchaseInvoiceService.createInvoice({
         supplier: invoice.supplierId,
         date: invoice.date,
@@ -2115,7 +2116,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           unitPrice: i.price,
         })),
         wholesaleAmount: invoice.wholesaleAmount,
-        saleAmount: invoice.saleAmount,
+        paidAmount: paid,
         paymentMethod: invoice.paymentMethod,
         notes: invoice.notes,
       });
@@ -2183,7 +2184,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }));
       }
       if (invoice.wholesaleAmount != null) payload.wholesaleAmount = invoice.wholesaleAmount;
-      if (invoice.saleAmount != null) payload.saleAmount = invoice.saleAmount;
+      const paid = invoice.paidAmount ?? invoice.saleAmount;
+      if (paid != null) payload.paidAmount = paid;
       if (invoice.paymentMethod != null) payload.paymentMethod = invoice.paymentMethod;
       if (invoice.notes != null) payload.notes = invoice.notes;
 

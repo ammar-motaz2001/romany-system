@@ -41,10 +41,11 @@ export default function SuppliersPage() {
     date: new Date().toISOString().split('T')[0],
     items: [{ itemName: '', quantity: 1, unitPrice: 0 }],
     wholesaleAmount: 0,
-    saleAmount: 0,
+    paidAmount: 0,
     paymentMethod: 'نقدي' as 'نقدي' | 'آجل' | 'مختلط',
     notes: '',
   });
+  const [paidAmountError, setPaidAmountError] = useState<string | null>(null);
 
   // Fetch data
   useEffect(() => {
@@ -63,11 +64,12 @@ export default function SuppliersPage() {
           quantity: item.quantity,
           unitPrice: item.unitPrice,
         })),
-        wholesaleAmount: editingInvoice.wholesaleAmount || 0,
-        saleAmount: editingInvoice.saleAmount ?? (editingInvoice as any).paidAmount ?? 0,
+        wholesaleAmount: editingInvoice.wholesaleAmount ?? 0,
+        paidAmount: editingInvoice.paidAmount ?? (editingInvoice as any).saleAmount ?? 0,
         paymentMethod: editingInvoice.paymentMethod,
-        notes: editingInvoice.notes || '',
+        notes: editingInvoice.notes ?? '',
       });
+      setPaidAmountError(null);
     }
   }, [editingInvoice, showInvoiceDialog]);
 
@@ -135,6 +137,16 @@ export default function SuppliersPage() {
   const totalBalance = suppliers.reduce((sum, s) => sum + s.balance, 0);
   const paidInvoices = purchaseInvoices.filter(i => i.status === 'مدفوعة').length;
   const unpaidInvoices = purchaseInvoices.filter(i => i.status === 'غير مدفوعة').length;
+
+  // Balance from مبلغ الجمله (wholesale) for التجار tab: per-supplier and total
+  const supplierBalanceFromWholesale = (supplierId: string) =>
+    purchaseInvoices
+      .filter(inv => inv.supplier === supplierId)
+      .reduce((sum, inv) => sum + (inv.wholesaleAmount ?? inv.totalAmount ?? 0), 0);
+  const totalBalanceFromWholesale = purchaseInvoices.reduce(
+    (sum, inv) => sum + (inv.wholesaleAmount ?? inv.totalAmount ?? 0),
+    0
+  );
 
   // Handler functions for suppliers
   const handleOpenSupplierDialog = () => {
@@ -207,10 +219,11 @@ export default function SuppliersPage() {
       date: new Date().toISOString().split('T')[0],
       items: [{ itemName: '', quantity: 1, unitPrice: 0 }],
       wholesaleAmount: 0,
-      saleAmount: 0,
+      paidAmount: 0,
       paymentMethod: 'نقدي',
       notes: '',
     });
+    setPaidAmountError(null);
     setEditingInvoice(null);
     setShowInvoiceDialog(true);
   };
@@ -338,9 +351,9 @@ export default function SuppliersPage() {
         <table>
           <thead>
             <tr>
-              <th>الصنف</th>
+              <th>اسم الصنف</th>
               <th>الكمية</th>
-              <th>السعر</th>
+              <th>مبلغ البيع</th>
               <th>الإجمالي</th>
             </tr>
           </thead>
@@ -362,12 +375,20 @@ export default function SuppliersPage() {
             <span>${invoice.totalAmount.toFixed(2)} ج.م</span>
           </div>
           <div class="row">
-            <span>مبلغ البيع:</span>
-            <span>${(invoice.saleAmount ?? invoice.paidAmount ?? 0).toFixed(2)} ج.م</span>
+            <span>مبلغ الجمله:</span>
+            <span>${(invoice.wholesaleAmount ?? 0).toFixed(2)} ج.م</span>
+          </div>
+          <div class="row">
+            <span>المدفوع:</span>
+            <span>${(invoice.paidAmount ?? (invoice as any).saleAmount ?? 0).toFixed(2)} ج.م</span>
           </div>
           <div class="row total">
-            <span>المتبقي:</span>
+            <span>الباقي:</span>
             <span>${invoice.remainingAmount.toFixed(2)} ج.م</span>
+          </div>
+          <div class="row">
+            <span>الحالة:</span>
+            <span>${invoice.status}</span>
           </div>
         </div>
 
@@ -435,6 +456,7 @@ export default function SuppliersPage() {
 
   const handleSubmitInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPaidAmountError(null);
 
     if (!invoiceForm.supplier) {
       toast.error('يرجى اختيار التاجر');
@@ -446,6 +468,17 @@ export default function SuppliersPage() {
       return;
     }
 
+    const itemsTotal = calculateInvoiceTotal();
+    const maxAllowed = invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : itemsTotal;
+    if (invoiceForm.paidAmount < 0) {
+      setPaidAmountError('المدفوع يجب أن يكون ≥ 0');
+      return;
+    }
+    if (invoiceForm.paidAmount > maxAllowed) {
+      setPaidAmountError(`المدفوع يجب أن يكون ≤ ${maxAllowed.toFixed(2)} ج.م (${invoiceForm.wholesaleAmount > 0 ? 'مبلغ الجمله' : 'إجمالي الأصناف'})`);
+      return;
+    }
+
     try {
       setLoading(true);
       const invoiceData: CreatePurchaseInvoiceDTO = {
@@ -453,13 +486,21 @@ export default function SuppliersPage() {
         date: invoiceForm.date,
         items: invoiceForm.items,
         wholesaleAmount: invoiceForm.wholesaleAmount,
-        saleAmount: invoiceForm.saleAmount,
+        paidAmount: invoiceForm.paidAmount,
         paymentMethod: invoiceForm.paymentMethod,
         notes: invoiceForm.notes,
       };
 
       if (editingInvoice) {
-        await purchaseInvoiceService.updateInvoice(editingInvoice._id, invoiceData);
+        await purchaseInvoiceService.updateInvoice(editingInvoice._id, {
+          supplier: invoiceData.supplier,
+          date: invoiceData.date,
+          items: invoiceData.items,
+          wholesaleAmount: invoiceData.wholesaleAmount,
+          paidAmount: invoiceData.paidAmount,
+          paymentMethod: invoiceData.paymentMethod,
+          notes: invoiceData.notes,
+        });
         toast.success('تم تحديث الفاتورة بنجاح');
       } else {
         await purchaseInvoiceService.createInvoice(invoiceData);
@@ -574,8 +615,12 @@ export default function SuppliersPage() {
             <Card className="p-6 dark:bg-gray-800">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">إجمالي الرصيد</p>
-                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">{totalBalance.toFixed(2)} ج.م</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">
+                    إجمالي الرصيد {activeTab === 'suppliers' ? '(من مبلغ الجمله)' : ''}
+                  </p>
+                  <h3 className="text-2xl font-bold text-gray-900 dark:text-white">
+                    {(activeTab === 'suppliers' ? totalBalanceFromWholesale : totalBalance).toFixed(2)} ج.م
+                  </h3>
                 </div>
                 <div className="bg-purple-100 dark:bg-purple-900 p-3 rounded-xl">
                   <FileText className="h-6 w-6 text-purple-600 dark:text-purple-400" />
@@ -675,9 +720,14 @@ export default function SuppliersPage() {
                         <td className="px-4 md:px-6 py-4 text-sm text-gray-600 dark:text-gray-300 font-mono">{supplier.phone}</td>
                         <td className="px-4 md:px-6 py-4 text-sm text-gray-600 dark:text-gray-400 hidden md:table-cell">{supplier.address || '-'}</td>
                         <td className="px-4 md:px-6 py-4 text-sm">
-                          <span className={`font-semibold ${supplier.balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
-                            {supplier.balance.toFixed(2)} ج.م
-                          </span>
+                          {(() => {
+                            const balance = supplierBalanceFromWholesale(supplier._id);
+                            return (
+                              <span className={`font-semibold ${balance > 0 ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}`}>
+                                {balance.toFixed(2)} ج.م
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 md:px-6 py-4 text-sm hidden sm:table-cell">
                           <span className={`px-3 py-1 rounded-full text-xs font-medium ${
@@ -730,8 +780,8 @@ export default function SuppliersPage() {
                       <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200">التاجر</th>
                       <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200 hidden lg:table-cell">التاريخ</th>
                       <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200">الإجمالي</th>
-                      <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200 hidden md:table-cell">مبلغ البيع</th>
-                      <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200 hidden md:table-cell">المتبقي</th>
+                      <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200 hidden md:table-cell">المدفوع</th>
+                      <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200 hidden md:table-cell">الباقي</th>
                       <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200 hidden sm:table-cell">الحالة</th>
                       <th className="px-4 md:px-6 py-3 text-right text-xs md:text-sm font-semibold text-gray-700 dark:text-gray-200">الإجراءات</th>
                     </tr>
@@ -748,7 +798,7 @@ export default function SuppliersPage() {
                           {invoice.totalAmount.toFixed(2)} ج.م
                         </td>
                         <td className="px-4 md:px-6 py-4 text-sm text-green-600 dark:text-green-400 font-semibold hidden md:table-cell">
-                          {(invoice.saleAmount ?? (invoice as any).paidAmount ?? 0).toFixed(2)} ج.م
+                          {(invoice.paidAmount ?? (invoice as any).saleAmount ?? 0).toFixed(2)} ج.م
                         </td>
                         <td className="px-4 md:px-6 py-4 text-sm text-red-600 dark:text-red-400 font-semibold hidden md:table-cell">
                           {invoice.remainingAmount.toFixed(2)} ج.م
@@ -1009,14 +1059,14 @@ export default function SuppliersPage() {
                           />
                         </div>
                         <div className="col-span-4 md:col-span-3">
-                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">السعر</label>
+                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">مبلغ البيع</label>
                           <Input
                             type="number"
                             step="0.01"
                             min="0"
                             value={item.unitPrice}
                             onChange={(e) => handleUpdateInvoiceItem(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                            placeholder="السعر"
+                            placeholder="مبلغ البيع"
                             className="dark:bg-gray-700 dark:text-white"
                             required
                           />
@@ -1061,26 +1111,37 @@ export default function SuppliersPage() {
                       step="0.01"
                       min="0"
                       value={invoiceForm.wholesaleAmount}
-                      onChange={(e) => setInvoiceForm({ ...invoiceForm, wholesaleAmount: parseFloat(e.target.value) || 0 })}
+                      onChange={(e) => {
+                        setInvoiceForm({ ...invoiceForm, wholesaleAmount: parseFloat(e.target.value) || 0 });
+                        setPaidAmountError(null);
+                      }}
                       placeholder="أدخل مبلغ الجمله"
                       className="dark:bg-gray-700 dark:text-white"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مبلغ البيع</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">المدفوع</label>
                     <Input
                       type="number"
                       step="0.01"
                       min="0"
-                      max={calculateInvoiceTotal()}
-                      value={invoiceForm.saleAmount}
-                      onChange={(e) => setInvoiceForm({ ...invoiceForm, saleAmount: parseFloat(e.target.value) || 0 })}
-                      placeholder="أدخل مبلغ البيع"
+                      max={invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : calculateInvoiceTotal()}
+                      value={invoiceForm.paidAmount}
+                      onChange={(e) => {
+                        setInvoiceForm({ ...invoiceForm, paidAmount: parseFloat(e.target.value) || 0 });
+                        setPaidAmountError(null);
+                      }}
+                      placeholder="أدخل المدفوع"
                       className="dark:bg-gray-700 dark:text-white"
                     />
                     <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      المتبقي: {(calculateInvoiceTotal() - invoiceForm.saleAmount).toFixed(2)} ج.م
+                      أقصى مسموح: {(invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : calculateInvoiceTotal()).toFixed(2)} ج.م
                     </p>
+                    {paidAmountError && (
+                      <p className="text-xs text-red-600 dark:text-red-400 mt-1" role="alert">
+                        {paidAmountError}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -1165,9 +1226,9 @@ export default function SuppliersPage() {
                     <table className="w-full">
                       <thead className="bg-gray-50 dark:bg-gray-900">
                         <tr>
-                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">الصنف</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">اسم الصنف</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">الكمية</th>
-                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">السعر</th>
+                          <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">مبلغ البيع</th>
                           <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 dark:text-gray-300">الإجمالي</th>
                         </tr>
                       </thead>
@@ -1192,19 +1253,23 @@ export default function SuppliersPage() {
                     <span className="text-gray-700 dark:text-gray-300">الإجمالي الكلي:</span>
                     <span className="font-semibold text-gray-900 dark:text-gray-100 font-mono">{selectedInvoice.totalAmount.toFixed(2)} ج.م</span>
                   </div>
-                  {selectedInvoice.wholesaleAmount !== undefined && selectedInvoice.wholesaleAmount > 0 && (
-                    <div className="flex justify-between text-base">
-                      <span className="text-gray-700 dark:text-gray-300">مبلغ الجمله:</span>
-                      <span className="font-semibold text-blue-600 dark:text-blue-400 font-mono">{selectedInvoice.wholesaleAmount.toFixed(2)} ج.م</span>
-                    </div>
-                  )}
                   <div className="flex justify-between text-base">
-                    <span className="text-gray-700 dark:text-gray-300">مبلغ البيع:</span>
-                    <span className="font-semibold text-green-600 dark:text-green-400 font-mono">{(selectedInvoice.saleAmount ?? (selectedInvoice as any).paidAmount ?? 0).toFixed(2)} ج.م</span>
+                    <span className="text-gray-700 dark:text-gray-300">مبلغ الجمله:</span>
+                    <span className="font-semibold text-blue-600 dark:text-blue-400 font-mono">{(selectedInvoice.wholesaleAmount ?? 0).toFixed(2)} ج.م</span>
                   </div>
-                  <div className="flex justify-between text-lg pt-3 border-t-2 border-purple-300 dark:border-purple-700">
-                    <span className="font-semibold text-purple-900 dark:text-purple-100">المتبقي:</span>
+                  <div className="flex justify-between text-base">
+                    <span className="text-gray-700 dark:text-gray-300">المدفوع:</span>
+                    <span className="font-semibold text-green-600 dark:text-green-400 font-mono">{(selectedInvoice.paidAmount ?? (selectedInvoice as any).saleAmount ?? 0).toFixed(2)} ج.م</span>
+                  </div>
+                  <div className="flex justify-between text-base">
+                    <span className="text-gray-700 dark:text-gray-300">الباقي:</span>
                     <span className="font-bold text-red-600 dark:text-red-400 font-mono">{selectedInvoice.remainingAmount.toFixed(2)} ج.م</span>
+                  </div>
+                  <div className="flex justify-between text-base pt-2 border-t border-purple-200 dark:border-purple-700">
+                    <span className="text-gray-700 dark:text-gray-300">الحالة:</span>
+                    <span className={`px-2 py-0.5 rounded text-sm font-medium ${getStatusBadge(selectedInvoice.status)}`}>
+                      {selectedInvoice.status}
+                    </span>
                   </div>
                 </div>
 
