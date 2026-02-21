@@ -39,9 +39,7 @@ export default function SuppliersPage() {
   const [invoiceForm, setInvoiceForm] = useState({
     supplier: '',
     date: new Date().toISOString().split('T')[0],
-    items: [{ itemName: '', quantity: 1, unitPrice: 0 }],
-    wholesaleAmount: 0,
-    paidAmount: 0,
+    items: [{ itemName: '', quantity: 1, unitPrice: 0, wholesaleAmount: 0, paidAmount: 0 }],
     paymentMethod: 'نقدي' as 'نقدي' | 'آجل' | 'مختلط',
     notes: '',
   });
@@ -56,6 +54,9 @@ export default function SuppliersPage() {
   // Populate form when editing invoice
   useEffect(() => {
     if (editingInvoice && showInvoiceDialog) {
+      const len = editingInvoice.items.length;
+      const wholesalePer = len > 0 ? (editingInvoice.wholesaleAmount ?? 0) / len : 0;
+      const paidPer = len > 0 ? (editingInvoice.paidAmount ?? (editingInvoice as any).saleAmount ?? 0) / len : 0;
       setInvoiceForm({
         supplier: editingInvoice.supplier,
         date: editingInvoice.date.split('T')[0],
@@ -63,9 +64,9 @@ export default function SuppliersPage() {
           itemName: item.itemName,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
+          wholesaleAmount: (item as any).wholesaleAmount ?? wholesalePer,
+          paidAmount: (item as any).paidAmount ?? paidPer,
         })),
-        wholesaleAmount: editingInvoice.wholesaleAmount ?? 0,
-        paidAmount: editingInvoice.paidAmount ?? (editingInvoice as any).saleAmount ?? 0,
         paymentMethod: editingInvoice.paymentMethod,
         notes: editingInvoice.notes ?? '',
       });
@@ -217,9 +218,7 @@ export default function SuppliersPage() {
     setInvoiceForm({
       supplier: '',
       date: new Date().toISOString().split('T')[0],
-      items: [{ itemName: '', quantity: 1, unitPrice: 0 }],
-      wholesaleAmount: 0,
-      paidAmount: 0,
+      items: [{ itemName: '', quantity: 1, unitPrice: 0, wholesaleAmount: 0, paidAmount: 0 }],
       paymentMethod: 'نقدي',
       notes: '',
     });
@@ -431,7 +430,7 @@ export default function SuppliersPage() {
   const handleAddInvoiceItem = () => {
     setInvoiceForm({
       ...invoiceForm,
-      items: [...invoiceForm.items, { itemName: '', quantity: 1, unitPrice: 0 }],
+      items: [...invoiceForm.items, { itemName: '', quantity: 1, unitPrice: 0, wholesaleAmount: 0, paidAmount: 0 }],
     });
   };
 
@@ -454,6 +453,11 @@ export default function SuppliersPage() {
     return invoiceForm.items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
   };
 
+  const totalWholesaleFromItems = () =>
+    invoiceForm.items.reduce((sum, item) => sum + (Number((item as any).wholesaleAmount) || 0), 0);
+  const totalPaidFromItems = () =>
+    invoiceForm.items.reduce((sum, item) => sum + (Number((item as any).paidAmount) || 0), 0);
+
   const handleSubmitInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     setPaidAmountError(null);
@@ -468,25 +472,31 @@ export default function SuppliersPage() {
       return;
     }
 
-    const itemsTotal = calculateInvoiceTotal();
-    const maxAllowed = invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : itemsTotal;
-    if (invoiceForm.paidAmount < 0) {
+    const totalWholesale = totalWholesaleFromItems();
+    const totalPaid = totalPaidFromItems();
+    const maxAllowed = totalWholesale > 0 ? totalWholesale : calculateInvoiceTotal();
+    if (totalPaid < 0) {
       setPaidAmountError('المدفوع يجب أن يكون ≥ 0');
       return;
     }
-    if (invoiceForm.paidAmount > maxAllowed) {
-      setPaidAmountError(`المدفوع يجب أن يكون ≤ ${maxAllowed.toFixed(2)} ج.م (${invoiceForm.wholesaleAmount > 0 ? 'مبلغ الجمله' : 'إجمالي الأصناف'})`);
+    if (totalPaid > maxAllowed) {
+      setPaidAmountError(`إجمالي المدفوع يجب أن يكون ≤ ${maxAllowed.toFixed(2)} ج.م`);
       return;
     }
 
     try {
       setLoading(true);
+      const itemsForApi = invoiceForm.items.map(({ itemName, quantity, unitPrice }) => ({
+        itemName,
+        quantity,
+        unitPrice,
+      }));
       const invoiceData: CreatePurchaseInvoiceDTO = {
         supplier: invoiceForm.supplier,
         date: invoiceForm.date,
-        items: invoiceForm.items,
-        wholesaleAmount: invoiceForm.wholesaleAmount,
-        paidAmount: invoiceForm.paidAmount,
+        items: itemsForApi,
+        wholesaleAmount: totalWholesale,
+        paidAmount: totalPaid,
         paymentMethod: invoiceForm.paymentMethod,
         notes: invoiceForm.notes,
       };
@@ -496,8 +506,8 @@ export default function SuppliersPage() {
           supplier: invoiceData.supplier,
           date: invoiceData.date,
           items: invoiceData.items,
-          wholesaleAmount: invoiceData.wholesaleAmount,
-          paidAmount: invoiceData.paidAmount,
+          wholesaleAmount: totalWholesale,
+          paidAmount: totalPaid,
           paymentMethod: invoiceData.paymentMethod,
           notes: invoiceData.notes,
         });
@@ -1036,7 +1046,7 @@ export default function SuppliersPage() {
                   <div className="space-y-3 bg-gray-50 dark:bg-gray-900/50 p-4 rounded-lg">
                     {invoiceForm.items.map((item, index) => (
                       <div key={index} className="grid grid-cols-12 gap-2 items-end bg-white dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700">
-                        <div className="col-span-12 md:col-span-5">
+                        <div className="col-span-12 md:col-span-3">
                           <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">اسم الصنف</label>
                           <Input
                             value={item.itemName}
@@ -1046,7 +1056,7 @@ export default function SuppliersPage() {
                             required
                           />
                         </div>
-                        <div className="col-span-4 md:col-span-2">
+                        <div className="col-span-4 md:col-span-1">
                           <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">الكمية</label>
                           <Input
                             type="number"
@@ -1058,7 +1068,7 @@ export default function SuppliersPage() {
                             required
                           />
                         </div>
-                        <div className="col-span-4 md:col-span-3">
+                        <div className="col-span-4 md:col-span-1">
                           <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">مبلغ البيع</label>
                           <Input
                             type="number"
@@ -1071,13 +1081,43 @@ export default function SuppliersPage() {
                             required
                           />
                         </div>
-                        <div className="col-span-3 md:col-span-1 text-center">
+                        <div className="col-span-4 md:col-span-2">
+                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">مبلغ الجمله</label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={(item as any).wholesaleAmount ?? 0}
+                            onChange={(e) => {
+                              handleUpdateInvoiceItem(index, 'wholesaleAmount', parseFloat(e.target.value) || 0);
+                              setPaidAmountError(null);
+                            }}
+                            placeholder="مبلغ الجمله"
+                            className="dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div className="col-span-4 md:col-span-2">
+                          <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">مبلغ مدفوع</label>
+                          <Input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={(item as any).paidAmount ?? 0}
+                            onChange={(e) => {
+                              handleUpdateInvoiceItem(index, 'paidAmount', parseFloat(e.target.value) || 0);
+                              setPaidAmountError(null);
+                            }}
+                            placeholder="مبلغ مدفوع"
+                            className="dark:bg-gray-700 dark:text-white"
+                          />
+                        </div>
+                        <div className="col-span-2 md:col-span-1 text-center">
                           <label className="block text-xs text-gray-600 dark:text-gray-400 mb-1">المجموع</label>
                           <p className="text-sm font-bold text-purple-600 dark:text-purple-400 py-2">
                             {(item.quantity * item.unitPrice).toFixed(2)}
                           </p>
                         </div>
-                        <div className="col-span-1 flex items-end justify-center">
+                        <div className="col-span-2 md:col-span-1 flex items-end justify-center">
                           <Button
                             type="button"
                             size="sm"
@@ -1093,58 +1133,22 @@ export default function SuppliersPage() {
                     ))}
                   </div>
 
+                  {paidAmountError && (
+                    <p className="text-sm text-red-600 dark:text-red-400 mt-2" role="alert">
+                      {paidAmountError}
+                    </p>
+                  )}
+
                   <div className="mt-4 p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg border-2 border-purple-200 dark:border-purple-800">
                     <div className="flex justify-between items-center">
                       <span className="text-lg font-semibold text-purple-900 dark:text-purple-100">الإجمالي الكلي (الباقي):</span>
                       <span className="text-2xl font-bold text-purple-900 dark:text-purple-100">
                         {(
-                          (invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : calculateInvoiceTotal()) -
-                          invoiceForm.paidAmount
+                          (totalWholesaleFromItems() > 0 ? totalWholesaleFromItems() : calculateInvoiceTotal()) -
+                          totalPaidFromItems()
                         ).toFixed(2)} ج.م
                       </span>
                     </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">مبلغ الجمله</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={invoiceForm.wholesaleAmount}
-                      onChange={(e) => {
-                        setInvoiceForm({ ...invoiceForm, wholesaleAmount: parseFloat(e.target.value) || 0 });
-                        setPaidAmountError(null);
-                      }}
-                      placeholder="أدخل مبلغ الجمله"
-                      className="dark:bg-gray-700 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">المدفوع</label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      max={invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : calculateInvoiceTotal()}
-                      value={invoiceForm.paidAmount}
-                      onChange={(e) => {
-                        setInvoiceForm({ ...invoiceForm, paidAmount: parseFloat(e.target.value) || 0 });
-                        setPaidAmountError(null);
-                      }}
-                      placeholder="أدخل المدفوع"
-                      className="dark:bg-gray-700 dark:text-white"
-                    />
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                      أقصى مسموح: {(invoiceForm.wholesaleAmount > 0 ? invoiceForm.wholesaleAmount : calculateInvoiceTotal()).toFixed(2)} ج.م
-                    </p>
-                    {paidAmountError && (
-                      <p className="text-xs text-red-600 dark:text-red-400 mt-1" role="alert">
-                        {paidAmountError}
-                      </p>
-                    )}
                   </div>
                 </div>
 
