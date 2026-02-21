@@ -6,6 +6,7 @@ import { Input } from '@/app/components/ui/input';
 import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
 import { generateTablePDF } from '@/utils/pdfExportArabic';
+import { formatTimeTo12h, getDisplayWorkHours, formatWorkHoursFromDecimal } from '@/utils/attendanceUtils';
 import { toast } from 'sonner';
 
 /** Status options — backend enum only: حاضر, غائب, تأخير, إجازة (no extra values) */
@@ -57,15 +58,11 @@ export default function AttendancePage() {
     return matchesStatus && matchesSearch && matchesDate;
   });
 
-  // Format workHours for display: number (decimal hours) -> "H:MM", or keep string as-is
-  const formatWorkHoursDisplay = (val: string | number | undefined): string => {
-    if (val == null || val === '') return '-';
-    if (typeof val === 'number') {
-      const h = Math.floor(val);
-      const m = Math.round((val - h) * 60);
-      return `${h}:${String(m).padStart(2, '0')}`;
-    }
-    return String(val);
+  // Format work hours for display: use difference الحضور–الانصراف when both exist, else stored value
+  const formatWorkHoursDisplay = (record: { checkIn?: string; checkOut?: string; workHours?: string | number }): string => {
+    const hours = getDisplayWorkHours(record);
+    if (hours == null) return '-';
+    return formatWorkHoursFromDecimal(hours);
   };
 
   // Today's statistics
@@ -176,16 +173,19 @@ export default function AttendancePage() {
         { header: 'ملاحظات', dataKey: 'notes' },
       ];
 
-      const data = filteredRecords.map(record => ({
-        date: record.date,
-        employeeName: record.employeeName,
-        position: record.position,
-        checkIn: record.checkIn || '-',
-        checkOut: record.checkOut || '-',
-        workHours: record.workHours || '-',
-        status: record.status,
-        notes: record.notes || '-',
-      }));
+      const data = filteredRecords.map(record => {
+        const hours = getDisplayWorkHours(record);
+        return {
+          date: record.date,
+          employeeName: record.employeeName,
+          position: record.position,
+          checkIn: formatTimeTo12h(record.checkIn),
+          checkOut: formatTimeTo12h(record.checkOut),
+          workHours: hours != null ? formatWorkHoursFromDecimal(hours) : '-',
+          status: record.status,
+          notes: record.notes || '-',
+        };
+      });
 
       generateTablePDF({
         title: 'تقرير الحضور والانصراف',
@@ -331,9 +331,9 @@ export default function AttendancePage() {
                         </div>
                       </td>
                       <td className="p-3 text-gray-600">{record.position}</td>
-                      <td className="p-3 font-mono text-sm">{record.checkIn || '-'}</td>
-                      <td className="p-3 font-mono text-sm">{record.checkOut || '-'}</td>
-                      <td className="p-3 font-medium">{formatWorkHoursDisplay(record.workHours)}</td>
+                      <td className="p-3 font-mono text-sm">{formatTimeTo12h(record.checkIn)}</td>
+                      <td className="p-3 font-mono text-sm">{formatTimeTo12h(record.checkOut)}</td>
+                      <td className="p-3 font-medium">{formatWorkHoursDisplay(record)}</td>
                       <td className="p-3">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-medium ${

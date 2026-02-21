@@ -6,6 +6,7 @@ import { Input } from '@/app/components/ui/input';
 import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
 import { generateTablePDF } from '@/utils/pdfExportArabic';
+import { formatTimeTo12h, getDisplayWorkHours, formatWorkHoursFromDecimal } from '@/utils/attendanceUtils';
 import { toast } from 'sonner';
 
 export default function ReportsPage() {
@@ -152,14 +153,17 @@ export default function ReportsPage() {
           { header: 'الحالة', dataKey: 'status' },
         ];
 
-        data = filteredAttendance.map(record => ({
-          date: record.date,
-          employeeName: record.employeeName,
-          checkIn: record.checkIn || '-',
-          checkOut: record.checkOut || '-',
-          workHours: record.workHours || '-',
-          status: record.status,
-        }));
+        data = filteredAttendance.map(record => {
+          const hours = getDisplayWorkHours(record);
+          return {
+            date: record.date,
+            employeeName: record.employeeName,
+            checkIn: formatTimeTo12h(record.checkIn),
+            checkOut: formatTimeTo12h(record.checkOut),
+            workHours: hours != null ? formatWorkHoursFromDecimal(hours) : '-',
+            status: record.status,
+          };
+        });
       } else if (reportType === 'تقرير المخزون') {
         title = 'تقرير المخزون';
         subtitle = `القيمة الإجمالية: ${stats.totalValue?.toFixed(2)} ج.م | أصناف قليلة المخزون: ${stats.lowStock}`;

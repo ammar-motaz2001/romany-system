@@ -147,6 +147,7 @@ interface AttendanceRecord {
   advance?: number;
   day?: string;
   notes?: string;
+  lateMinutes?: number | string;
 }
 
 interface Notification {
@@ -921,17 +922,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
         hourlyRate: r.hourlyRate != null ? Number(r.hourlyRate) : undefined,
         commission: Number(r.commission ?? 0),
         status,
-        latePenaltyPerMinute: r.latePenaltyPerMinute != null ? Number(r.latePenaltyPerMinute) : undefined,
-        absencePenaltyPerDay: r.absencePenaltyPerDay != null ? Number(r.absencePenaltyPerDay) : undefined,
-        customDeductions: r.customDeductions != null ? Number(r.customDeductions) : undefined,
+        latePenaltyPerMinute:
+          r.latePenaltyPerMinute != null ? Number(r.latePenaltyPerMinute) :
+          (r.late_penalty_per_minute != null ? Number(r.late_penalty_per_minute) : undefined),
+        absencePenaltyPerDay:
+          r.absencePenaltyPerDay != null ? Number(r.absencePenaltyPerDay) :
+          (r.absence_penalty_per_day != null ? Number(r.absence_penalty_per_day) : undefined),
+        customDeductions:
+          r.customDeductions != null ? Number(r.customDeductions) :
+          (r.custom_deductions != null ? Number(r.custom_deductions) : undefined),
       };
     });
   }
 
-  /** Backend schema status enum: حاضر, غائب, تأخير, إجازة, present, absent, delay, leave. Map API -> UI (English to Arabic). */
+  /** Backend schema status enum: حاضر, غائب, تأخير, إجازة, present, absent, delay, leave, late. Map API -> UI (English to Arabic). */
   function mapAttendanceStatusFromApi(status: string): string {
-    const m: Record<string, string> = { present: 'حاضر', absent: 'غائب', delay: 'تأخير', leave: 'إجازة' };
-    return m[status] ?? status;
+    const m: Record<string, string> = {
+      present: 'حاضر',
+      absent: 'غائب',
+      delay: 'تأخير',
+      leave: 'إجازة',
+      late: 'تأخير',
+    };
+    return m[status?.toLowerCase?.() ?? ''] ?? status;
   }
 
   /** Map UI to backend enum only (legacy متأخر/نصف يوم -> backend value). */
@@ -952,6 +965,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
             : dateRaw
           : String(dateRaw ?? '');
       const statusRaw = String(r.status ?? 'حاضر');
+      const lateMinutesRaw = r.lateMinutes ?? r.late_minutes;
+      const lateMinutes =
+        lateMinutesRaw != null
+          ? typeof lateMinutesRaw === 'number'
+            ? lateMinutesRaw
+            : parseInt(String(lateMinutesRaw), 10) || 0
+          : undefined;
       return {
         id: String(r.id ?? r._id ?? ''),
         employeeId: String(r.employeeId ?? ''),
@@ -967,6 +987,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         advance: Number(r.advance) || 0,
         day: r.day as string | undefined,
         notes: r.notes as string | undefined,
+        lateMinutes: lateMinutes !== undefined && lateMinutes > 0 ? lateMinutes : undefined,
       };
     });
   }
@@ -1629,6 +1650,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         : (record.date ?? '');
     try {
       const workHoursNum = toWorkHoursNumber(record.workHours) ?? 0;
+      const lateMinutesNum =
+        record.lateMinutes != null
+          ? typeof record.lateMinutes === 'number'
+            ? record.lateMinutes
+            : parseInt(String(record.lateMinutes), 10) || 0
+          : undefined;
       const payload = {
         employeeId: record.employeeId,
         employeeName: String(record.employeeName ?? record.name ?? ''),
@@ -1643,6 +1670,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         advance: Number(record.advance) || 0,
         day: record.day ?? '',
         notes: record.notes ?? '',
+        ...(lateMinutesNum !== undefined && lateMinutesNum > 0 ? { lateMinutes: lateMinutesNum } : {}),
       };
       const created = await attendanceService.createAttendance(payload);
       const raw = unwrapData<Record<string, unknown>>(created) ?? (created as Record<string, unknown>);
@@ -1666,6 +1694,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             date: dateStr,
             advance: Number(record.advance) || 0,
             notes: record.notes ?? '',
+            lateMinutes: record.lateMinutes,
           },
         ]);
       }
@@ -1703,6 +1732,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (record.advance != null) payload.advance = Number(record.advance) || 0;
       const workHoursNum = toWorkHoursNumber(record.workHours);
       if (workHoursNum !== undefined) payload.workHours = workHoursNum;
+      if (record.lateMinutes != null) {
+        const lateMinutesNum =
+          typeof record.lateMinutes === 'number'
+            ? record.lateMinutes
+            : parseInt(String(record.lateMinutes), 10) || 0;
+        payload.lateMinutes = lateMinutesNum;
+      }
 
       await attendanceService.updateAttendance(normalizedId, payload);
       setAttendanceRecords((prev) =>

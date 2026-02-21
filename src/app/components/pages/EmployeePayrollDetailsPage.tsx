@@ -9,11 +9,12 @@ import { Button } from '@/app/components/ui/button';
 import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
 import { payrollService, type PayslipResponse } from '@/services/payroll.service';
+import { getLateMinutesForRecord, getDisplayWorkHours } from '@/utils/attendanceUtils';
 
 export default function EmployeePayrollDetailsPage() {
   const { employeeId } = useParams();
   const navigate = useNavigate();
-  const { employees, attendanceRecords, sales, bonuses, addBonus, deleteBonus, currentUser } = useApp();
+  const { employees, attendanceRecords, sales, bonuses, addBonus, deleteBonus, currentUser, systemSettings } = useApp();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [payslipFromAPI, setPayslipFromAPI] = useState<PayslipResponse | null>(null);
@@ -65,24 +66,29 @@ export default function EmployeePayrollDetailsPage() {
   });
 
   // Local calculation (used when API payslip is not available)
-  const localPresentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'تأخير').length;
-  const localLateDays = monthAttendance.filter(r => r.status === 'تأخير').length;
+  const localPresentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'تأخير' || r.status === 'متأخر').length;
+  const localLateDays = monthAttendance.filter(r => r.status === 'تأخير' || r.status === 'متأخر').length;
   const localAbsentDays = monthAttendance.filter(r => r.status === 'غائب').length;
   const localLeaveDays = monthAttendance.filter(r => r.status === 'إجازة').length;
 
+  const workStartTime = systemSettings?.workingHours?.start;
   let localTotalWorkHours = 0;
-  let localOvertimeHours = 0;
   let localTotalLateMinutes = 0;
+  let localOvertimeHours = 0;
   monthAttendance.forEach(record => {
-    if (record.workHours) {
-      const hours = parseFloat(record.workHours);
+    const lateMins = getLateMinutesForRecord(
+      { checkIn: record.checkIn, lateMinutes: record.lateMinutes, status: record.status },
+      workStartTime
+    );
+    localTotalLateMinutes += lateMins;
+    const lateHours = lateMins / 60;
+    const hours = getDisplayWorkHours(record) ?? 0;
+    if (hours > 0) {
       localTotalWorkHours += hours;
-      if (hours > employee.shiftHours) {
-        localOvertimeHours += hours - employee.shiftHours;
+      const effectiveHours = Math.max(0, hours - lateHours);
+      if (effectiveHours > employee.shiftHours) {
+        localOvertimeHours += effectiveHours - employee.shiftHours;
       }
-    }
-    if ((record.status === 'تأخير' || record.status === 'متأخر') && record.lateMinutes) {
-      localTotalLateMinutes += parseInt(record.lateMinutes);
     }
   });
 
@@ -101,22 +107,35 @@ export default function EmployeePayrollDetailsPage() {
     localCommission = (localTotalSalesAmount * employee.commission) / 100;
   }
 
+  const localEffectiveTotalWorkHours = Math.max(
+    0,
+    localTotalWorkHours - localTotalLateMinutes / 60
+  );
   let localBaseSalary = employee.baseSalary;
   let localSalaryNote = '';
   if (employee.salaryType === 'يومي') {
     localBaseSalary = (employee.baseSalary / employee.workDays) * localPresentDays;
     localSalaryNote = `راتب يومي: ${employee.baseSalary} ÷ ${employee.workDays} يوم × ${localPresentDays} يوم حضور`;
   } else if (employee.salaryType === 'بالساعة') {
-    localBaseSalary = (employee.hourlyRate ?? 0) * localTotalWorkHours;
-    localSalaryNote = `راتب بالساعة: ${employee.hourlyRate} ج.م × ${localTotalWorkHours.toFixed(2)} ساعة`;
+    localBaseSalary = (employee.hourlyRate ?? 0) * localEffectiveTotalWorkHours;
+    localSalaryNote = `راتب بالساعة: ${employee.hourlyRate} ج.م × ${localEffectiveTotalWorkHours.toFixed(2)} ساعة (بعد خصم التأخير)`;
   } else {
     localSalaryNote = `راتب شهري ثابت`;
   }
 
-  const latePenaltyPerMinute = employee.latePenaltyPerMinute || 0;
+  const latePenaltyPerMinute = Number(employee?.latePenaltyPerMinute) || 0;
   const absencePenaltyPerDay = employee.absencePenaltyPerDay || 0;
-  const customDeductionsAmount = employee.customDeductions || 0;
-  const localLateDeduction = localTotalLateMinutes * latePenaltyPerMinute;
+  const customDeductionsAmount = employee.customDeductions ?? 0;
+  const hourlyRateForLate =
+    employee.salaryType === 'بالساعة'
+      ? (employee.hourlyRate ?? 0)
+      : employee.baseSalary / (employee.workDays * employee.shiftHours);
+  const lateDeductionFromPenalty = localTotalLateMinutes * latePenaltyPerMinute;
+  const lateDeductionFromUnpaid =
+    latePenaltyPerMinute <= 0 && localTotalLateMinutes > 0
+      ? (localTotalLateMinutes / 60) * hourlyRateForLate
+      : 0;
+  const localLateDeduction = lateDeductionFromPenalty + lateDeductionFromUnpaid;
   const localAbsentDeduction = localAbsentDays * absencePenaltyPerDay;
 
   const hourlyRate = employee.salaryType === 'بالساعة'
@@ -363,7 +382,7 @@ export default function EmployeePayrollDetailsPage() {
             <tr>
               <td>
                 خصم التأخير
-                <div class="sub-note">السبب: تأخر ${totalLateMinutes} دقيقة × ${latePenaltyPerMinute} ج.م للديقة</div>
+                <div class="sub-note">السبب: ${latePenaltyPerMinute > 0 ? `تأخر ${totalLateMinutes} دقيقة × ${latePenaltyPerMinute} ج.م للدقيقة` : `تأخر ${totalLateMinutes} دقيقة (خصم وقت غير مدفوع)`}</div>
               </td>
               <td style="color: #c62828;"><strong>-${lateDeduction.toFixed(2)}</strong> ج.م</td>
             </tr>
@@ -441,12 +460,16 @@ export default function EmployeePayrollDetailsPage() {
   };
 
   // Deduction items for display
+  const lateDeductionCalculation =
+    latePenaltyPerMinute > 0
+      ? `${totalLateMinutes} دقيقة × ${latePenaltyPerMinute} ج.م للدقيقة`
+      : `${totalLateMinutes} دقيقة (خصم وقت غير مدفوع)`;
   const deductionItems = [
     {
       show: lateDeduction > 0,
       title: 'خصم التأخير',
       reason: `تأخر ${totalLateMinutes} دقيقة`,
-      calculation: `${totalLateMinutes} دقيقة × ${latePenaltyPerMinute} ج.م`,
+      calculation: lateDeductionCalculation,
       amount: lateDeduction,
       icon: '⏰'
     },
@@ -591,6 +614,9 @@ export default function EmployeePayrollDetailsPage() {
               <h2 className="text-2xl font-bold text-gray-900 mb-1">{employee.name}</h2>
               <p className="text-lg text-gray-600">{employee.position}</p>
               <p className="text-sm text-purple-600 mt-1">نوع الراتب: {employee.salaryType}</p>
+              {latePenaltyPerMinute > 0 && (
+                <p className="text-xs text-orange-600 mt-1">🕐 التأخير: {latePenaltyPerMinute} ج.م/دقيقة</p>
+              )}
             </div>
             <div className="text-center">
               <div className="bg-purple-500 text-white px-6 py-3 rounded-xl">

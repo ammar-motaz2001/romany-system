@@ -8,6 +8,7 @@ import { Card } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
 import Header from '@/app/components/Header';
 import { useApp } from '@/app/context/AppContext';
+import { formatTimeTo12h, getDisplayWorkHours, formatWorkHoursFromDecimal } from '@/utils/attendanceUtils';
 
 export default function EmployeeDetailsPage() {
   const { id: employeeId } = useParams();
@@ -57,15 +58,13 @@ export default function EmployeeDetailsPage() {
   let totalLateMinutes = 0;
 
   monthAttendance.forEach(record => {
-    if (record.workHours) {
-      const hours = parseFloat(record.workHours);
+    const hours = getDisplayWorkHours(record) ?? 0;
+    if (hours > 0) {
       totalWorkHours += hours;
-      
       if (hours > employee.shiftHours) {
         overtimeHours += hours - employee.shiftHours;
       }
     }
-    
     if (record.status === 'متأخر' && record.lateMinutes) {
       totalLateMinutes += parseInt(record.lateMinutes);
     }
@@ -97,7 +96,7 @@ export default function EmployeeDetailsPage() {
   }
 
   // Calculate deductions
-  const latePenaltyPerMinute = employee.latePenaltyPerMinute || 0;
+  const latePenaltyPerMinute = Number(employee?.latePenaltyPerMinute) || 0;
   const absencePenaltyPerDay = employee.absencePenaltyPerDay || 0;
   const customDeductions = employee.customDeductions || 0;
   
@@ -614,10 +613,13 @@ export default function EmployeeDetailsPage() {
                           {record.status}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-gray-600">{record.checkIn || '-'}</td>
-                      <td className="py-3 px-4 text-gray-600">{record.checkOut || '-'}</td>
+                      <td className="py-3 px-4 text-gray-600">{formatTimeTo12h(record.checkIn)}</td>
+                      <td className="py-3 px-4 text-gray-600">{formatTimeTo12h(record.checkOut)}</td>
                       <td className="py-3 px-4 text-gray-900 font-medium">
-                        {record.workHours ? `${record.workHours} ساعة` : '-'}
+                        {(() => {
+                          const hours = getDisplayWorkHours(record);
+                          return hours != null ? `${formatWorkHoursFromDecimal(hours)} ساعة` : '-';
+                        })()}
                       </td>
                       <td className="py-3 px-4 text-orange-600">
                         {record.lateMinutes ? `${record.lateMinutes} دقيقة` : '-'}

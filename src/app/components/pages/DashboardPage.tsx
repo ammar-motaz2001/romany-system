@@ -11,6 +11,7 @@ import { useTranslation } from '@/app/hooks/useTranslation';
 import { useEffect } from 'react';
 import { NotificationManager } from '@/app/utils/notifications';
 import Header from '@/app/components/Header';
+import { formatTimeTo12h } from '@/utils/attendanceUtils';
 
 export default function DashboardPage() {
   const { 
@@ -711,7 +712,7 @@ export default function DashboardPage() {
                       }
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500">{att.checkIn}</p>
+                  <p className="text-xs text-gray-500">{formatTimeTo12h(att.checkIn)}</p>
                   <p className="text-xs text-gray-400 mt-1">{att.date}</p>
                 </div>
               ))}

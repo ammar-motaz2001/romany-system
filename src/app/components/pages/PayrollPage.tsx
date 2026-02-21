@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router';
 import { generateTablePDF } from '@/utils/pdfExportArabic';
 import { toast } from 'sonner';
 import { payrollService, type PayslipResponse } from '@/services/payroll.service';
+import { getLateMinutesForRecord, getDisplayWorkHours } from '@/utils/attendanceUtils';
 
 export interface PayrollRow {
   employeeId: string;
@@ -52,25 +53,30 @@ export default function PayrollPage() {
       );
     });
 
-    const presentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'تأخير').length;
-    const lateDays = monthAttendance.filter(r => r.status === 'تأخير').length;
+    const presentDays = monthAttendance.filter(r => r.status === 'حاضر' || r.status === 'تأخير' || r.status === 'متأخر').length;
+    const lateDays = monthAttendance.filter(r => r.status === 'تأخير' || r.status === 'متأخر').length;
     const absentDays = monthAttendance.filter(r => r.status === 'غائب').length;
     const leaveDays = monthAttendance.filter(r => r.status === 'إجازة').length;
 
     let totalWorkHours = 0;
-    let overtimeHours = 0;
     let totalLateMinutes = 0;
+    let overtimeHours = 0;
 
+    const workStartTime = systemSettings?.workingHours?.start;
     monthAttendance.forEach(record => {
-      if (record.workHours) {
-        const hours = parseFloat(record.workHours);
+      const lateMins = getLateMinutesForRecord(
+        { checkIn: record.checkIn, lateMinutes: record.lateMinutes, status: record.status },
+        workStartTime
+      );
+      totalLateMinutes += lateMins;
+      const lateHours = lateMins / 60;
+      const hours = getDisplayWorkHours(record) ?? 0;
+      if (hours > 0) {
         totalWorkHours += hours;
-        if (hours > employee.shiftHours) {
-          overtimeHours += hours - employee.shiftHours;
+        const effectiveHours = Math.max(0, hours - lateHours);
+        if (effectiveHours > employee.shiftHours) {
+          overtimeHours += effectiveHours - employee.shiftHours;
         }
-      }
-      if ((record.status === 'تأخير' || record.status === 'متأخر') && record.lateMinutes) {
-        totalLateMinutes += parseInt(record.lateMinutes);
       }
     });
 
@@ -88,11 +94,12 @@ export default function PayrollPage() {
       commission = (totalSalesAmount * employee.commission) / 100;
     }
 
+    const effectiveTotalWorkHours = Math.max(0, totalWorkHours - totalLateMinutes / 60);
     let baseSalary = employee.baseSalary;
     if (employee.salaryType === 'يومي') {
       baseSalary = (employee.baseSalary / employee.workDays) * presentDays;
     } else if (employee.salaryType === 'بالساعة') {
-      baseSalary = (employee.hourlyRate ?? 0) * totalWorkHours;
+      baseSalary = (employee.hourlyRate ?? 0) * effectiveTotalWorkHours;
     }
 
     const hourlyRate =
@@ -101,10 +108,19 @@ export default function PayrollPage() {
         : employee.baseSalary / (employee.workDays * employee.shiftHours);
     const overtimePay = overtimeHours * hourlyRate * 1.5;
 
-    const latePenaltyPerMinute = employee.latePenaltyPerMinute || 0;
+    const latePenaltyPerMinute = Number(employee?.latePenaltyPerMinute) || 0;
     const absencePenaltyPerDay = employee.absencePenaltyPerDay || 0;
     const customDeductions = employee.customDeductions ?? employee.otherDeductions ?? 0;
-    const lateDeduction = totalLateMinutes * latePenaltyPerMinute;
+    const hourlyRateForLate =
+      employee.salaryType === 'بالساعة'
+        ? (employee.hourlyRate ?? 0)
+        : employee.baseSalary / (employee.workDays * employee.shiftHours);
+    const lateDeductionFromPenalty = totalLateMinutes * latePenaltyPerMinute;
+    const lateDeductionFromUnpaid =
+      latePenaltyPerMinute <= 0 && totalLateMinutes > 0
+        ? (totalLateMinutes / 60) * hourlyRateForLate
+        : 0;
+    const lateDeduction = lateDeductionFromPenalty + lateDeductionFromUnpaid;
     const absentDeduction = absentDays * absencePenaltyPerDay;
     const advances = monthAttendance.reduce(
       (acc, record) => acc + (record.advance ? parseFloat(record.advance) : 0),
@@ -154,6 +170,12 @@ export default function PayrollPage() {
             const api: PayslipResponse = result.value;
             const allowances =
               (api.totalEarnings ?? 0) - (api.baseSalary ?? 0) - (api.commission ?? 0) - (api.overtimePay ?? 0);
+            const totalDeductionsFromFlow =
+              (api.lateDeduction ?? 0) +
+              (api.absentDeduction ?? 0) +
+              (api.customDeductions ?? 0) +
+              (api.advances ?? 0);
+            const totalDeductions = totalDeductionsFromFlow > 0 ? totalDeductionsFromFlow : (api.totalDeductions ?? 0);
             return {
               employeeId: emp.id,
               employeeName: emp.name,
@@ -162,7 +184,7 @@ export default function PayrollPage() {
               commission: String(api.commission ?? 0),
               overtimePay: String(api.overtimePay ?? 0),
               totalAllowances: String(Math.max(0, allowances)),
-              totalDeductions: String(api.totalDeductions ?? 0),
+              totalDeductions: String(totalDeductions),
               netSalary: String(api.netSalary ?? 0),
               presentDays: api.presentDays ?? 0,
               lateDays: api.lateDays ?? 0,
@@ -361,7 +383,10 @@ export default function PayrollPage() {
                           </Button>
                         </td>
                       </tr>
-                      {expandedRow === i && (
+                      {expandedRow === i && (() => {
+                        const emp = employees.find(e => e.id === p.employeeId);
+                        const lateRate = Number(emp?.latePenaltyPerMinute) || 0;
+                        return (
                         <tr className="bg-gray-50">
                           <td colSpan={7} className="p-4">
                             <div className="grid grid-cols-4 gap-4">
@@ -372,6 +397,9 @@ export default function PayrollPage() {
                               <div className="bg-white p-3 rounded border">
                                 <p className="text-xs text-gray-500">التأخير</p>
                                 <p className="text-lg font-bold text-orange-600">{p.lateDays}</p>
+                                {lateRate > 0 && (
+                                  <p className="text-xs text-orange-600 mt-1">🕐 {lateRate} ج.م/دقيقة</p>
+                                )}
                               </div>
                               <div className="bg-white p-3 rounded border">
                                 <p className="text-xs text-gray-500">الغياب</p>
@@ -384,7 +412,8 @@ export default function PayrollPage() {
                             </div>
                           </td>
                         </tr>
-                      )}
+                        );
+                      })()}
                     </>
                   ))
                 )}
