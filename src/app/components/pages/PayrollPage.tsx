@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Download, TrendingUp, TrendingDown, DollarSign, Calculator, ChevronDown, ChevronUp, Eye } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Download, TrendingUp, TrendingDown, DollarSign, Calculator, ChevronDown, ChevronUp, Eye, Loader2 } from 'lucide-react';
 import { Card } from '@/app/components/ui/card';
 import { Button } from '@/app/components/ui/button';
 import Header from '@/app/components/Header';
@@ -7,6 +7,25 @@ import { useApp } from '@/app/context/AppContext';
 import { useNavigate } from 'react-router';
 import { generateTablePDF } from '@/utils/pdfExportArabic';
 import { toast } from 'sonner';
+import { payrollService, type PayslipResponse } from '@/services/payroll.service';
+
+export interface PayrollRow {
+  employeeId: string;
+  employeeName: string;
+  position: string;
+  baseSalary: string;
+  commission: string;
+  overtimePay: string;
+  totalAllowances: string;
+  totalDeductions: string;
+  netSalary: string;
+  presentDays: number;
+  lateDays: number;
+  absentDays: number;
+  leaveDays: number;
+  totalWorkHours: string;
+  overtimeHours: string;
+}
 
 export default function PayrollPage() {
   const { employees, attendanceRecords, sales, systemSettings } = useApp();
@@ -14,12 +33,15 @@ export default function PayrollPage() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [payrollRows, setPayrollRows] = useState<PayrollRow[]>([]);
+  const [loadingPayroll, setLoadingPayroll] = useState(true);
 
   const arabicMonths = [
     'يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو',
     'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
   ];
 
+  // Same formula as كشف راتب الموظف (EmployeePayrollDetailsPage) so الصافي matches
   const calculatePayroll = (employee: any) => {
     const monthAttendance = attendanceRecords.filter(record => {
       const recordDate = new Date(record.date);
@@ -37,15 +59,18 @@ export default function PayrollPage() {
 
     let totalWorkHours = 0;
     let overtimeHours = 0;
+    let totalLateMinutes = 0;
 
     monthAttendance.forEach(record => {
       if (record.workHours) {
         const hours = parseFloat(record.workHours);
         totalWorkHours += hours;
-        
         if (hours > employee.shiftHours) {
           overtimeHours += hours - employee.shiftHours;
         }
+      }
+      if ((record.status === 'تأخير' || record.status === 'متأخر') && record.lateMinutes) {
+        totalLateMinutes += parseInt(record.lateMinutes);
       }
     });
 
@@ -59,23 +84,36 @@ export default function PayrollPage() {
           saleDate.getFullYear() === selectedYear
         );
       });
-      
       const totalSalesAmount = employeeSales.reduce((acc, sale) => acc + (sale.total || sale.amount), 0);
       commission = (totalSalesAmount * employee.commission) / 100;
     }
 
     let baseSalary = employee.baseSalary;
-
     if (employee.salaryType === 'يومي') {
       baseSalary = (employee.baseSalary / employee.workDays) * presentDays;
     } else if (employee.salaryType === 'بالساعة') {
-      baseSalary = employee.hourlyRate * totalWorkHours;
+      baseSalary = (employee.hourlyRate ?? 0) * totalWorkHours;
     }
 
-    const overtimePay = overtimeHours * (employee.hourlyRate || (employee.baseSalary / (employee.workDays * employee.shiftHours)));
+    const hourlyRate =
+      employee.salaryType === 'بالساعة'
+        ? (employee.hourlyRate ?? 0)
+        : employee.baseSalary / (employee.workDays * employee.shiftHours);
+    const overtimePay = overtimeHours * hourlyRate * 1.5;
+
+    const latePenaltyPerMinute = employee.latePenaltyPerMinute || 0;
+    const absencePenaltyPerDay = employee.absencePenaltyPerDay || 0;
+    const customDeductions = employee.customDeductions ?? employee.otherDeductions ?? 0;
+    const lateDeduction = totalLateMinutes * latePenaltyPerMinute;
+    const absentDeduction = absentDays * absencePenaltyPerDay;
+    const advances = monthAttendance.reduce(
+      (acc, record) => acc + (record.advance ? parseFloat(record.advance) : 0),
+      0
+    );
+    const totalDeductions = lateDeduction + absentDeduction + customDeductions + advances;
+    const totalEarnings = baseSalary + commission + overtimePay;
+    const netSalary = totalEarnings - totalDeductions;
     const totalAllowances = (employee.allowances || 0) + (employee.bonus || 0);
-    const totalDeductions = (employee.otherDeductions || 0);
-    const netSalary = baseSalary + commission + overtimePay + totalAllowances - totalDeductions;
 
     return {
       employeeId: employee.id,
@@ -96,7 +134,92 @@ export default function PayrollPage() {
     };
   };
 
-  const payrollData = employees.map(emp => calculatePayroll(emp));
+  // Fetch payroll from same endpoint as كشف راتب الموظف (GET /employees/:id/payroll) – dynamic from API
+  useEffect(() => {
+    if (employees.length === 0) {
+      setPayrollRows([]);
+      setLoadingPayroll(false);
+      return;
+    }
+    setLoadingPayroll(true);
+    Promise.allSettled(
+      employees.map(emp =>
+        payrollService.getEmployeePayslip(emp.id, { month: selectedMonth, year: selectedYear })
+      )
+    )
+      .then(results => {
+        const rows: PayrollRow[] = results.map((result, i) => {
+          const emp = employees[i];
+          if (result.status === 'fulfilled' && result.value) {
+            const api: PayslipResponse = result.value;
+            const allowances =
+              (api.totalEarnings ?? 0) - (api.baseSalary ?? 0) - (api.commission ?? 0) - (api.overtimePay ?? 0);
+            return {
+              employeeId: emp.id,
+              employeeName: emp.name,
+              position: emp.position ?? '',
+              baseSalary: String(api.baseSalary ?? 0),
+              commission: String(api.commission ?? 0),
+              overtimePay: String(api.overtimePay ?? 0),
+              totalAllowances: String(Math.max(0, allowances)),
+              totalDeductions: String(api.totalDeductions ?? 0),
+              netSalary: String(api.netSalary ?? 0),
+              presentDays: api.presentDays ?? 0,
+              lateDays: api.lateDays ?? 0,
+              absentDays: api.absentDays ?? 0,
+              leaveDays: api.leaveDays ?? 0,
+              totalWorkHours: String(api.totalWorkHours ?? 0),
+              overtimeHours: String(api.overtimeHours ?? 0),
+            };
+          }
+          const local = calculatePayroll(emp);
+          return {
+            employeeId: local.employeeId,
+            employeeName: local.employeeName,
+            position: local.position,
+            baseSalary: local.baseSalary,
+            commission: local.commission,
+            overtimePay: local.overtimePay,
+            totalAllowances: local.totalAllowances,
+            totalDeductions: local.totalDeductions,
+            netSalary: local.netSalary,
+            presentDays: local.presentDays,
+            lateDays: local.lateDays,
+            absentDays: local.absentDays,
+            leaveDays: local.leaveDays,
+            totalWorkHours: local.totalWorkHours,
+            overtimeHours: local.overtimeHours,
+          };
+        });
+        setPayrollRows(rows);
+      })
+      .catch(() => {
+        const fallback = employees.map(emp => {
+          const p = calculatePayroll(emp);
+          return {
+            employeeId: p.employeeId,
+            employeeName: p.employeeName,
+            position: p.position,
+            baseSalary: p.baseSalary,
+            commission: p.commission,
+            overtimePay: p.overtimePay,
+            totalAllowances: p.totalAllowances,
+            totalDeductions: p.totalDeductions,
+            netSalary: p.netSalary,
+            presentDays: p.presentDays,
+            lateDays: p.lateDays,
+            absentDays: p.absentDays,
+            leaveDays: p.leaveDays,
+            totalWorkHours: p.totalWorkHours,
+            overtimeHours: p.overtimeHours,
+          };
+        });
+        setPayrollRows(fallback);
+      })
+      .finally(() => setLoadingPayroll(false));
+  }, [employees, selectedMonth, selectedYear, attendanceRecords, sales]);
+
+  const payrollData = payrollRows;
 
   const totalBaseSalary = payrollData.reduce((acc, p) => acc + parseFloat(p.baseSalary), 0);
   const totalCommission = payrollData.reduce((acc, p) => acc + parseFloat(p.commission), 0);
@@ -148,6 +271,12 @@ export default function PayrollPage() {
     <div className="flex-1 bg-gray-50 dark:bg-gray-900" dir="rtl">
       <Header title="إدارة الرواتب" />
       <div className="p-4 sm:p-6 lg:p-8">
+        {loadingPayroll && (
+          <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl flex items-center gap-3">
+            <Loader2 className="h-5 w-5 text-blue-600 dark:text-blue-400 animate-spin" />
+            <p className="text-sm text-blue-700 dark:text-blue-300">جاري تحميل بيانات الرواتب من كشف الراتب...</p>
+          </div>
+        )}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
           <Card className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200">
             <div className="flex flex-col items-center text-center">
