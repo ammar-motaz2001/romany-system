@@ -574,7 +574,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           (wh as Record<string, { close?: string }>)?.default?.close ??
           (wh as Record<string, string>)?.close;
         const inv = s.invoiceSettings as Record<string, unknown> | undefined;
-        const footerText = (inv?.footerText as string) ?? '';
+        const footerTextRaw = inv?.footerText as string | undefined;
+        const startVal = typeof start === 'string' && start.trim() !== '' ? start.trim() : null;
+        const endVal = typeof end === 'string' && end.trim() !== '' ? end.trim() : null;
+        const footerVal =
+          typeof footerTextRaw === 'string' && footerTextRaw.trim() !== '' ? footerTextRaw.trim() : null;
         setSystemSettings((prev) => ({
           ...prev,
           shopName: (s.businessName as string) ?? prev.shopName,
@@ -584,12 +588,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
           currency: (s.currency as string) ?? prev.currency,
           language: (s.language as string) ?? prev.language,
           workingHours: {
-            start: typeof start === 'string' ? start : (prev.workingHours?.start ?? '09:00'),
-            end: typeof end === 'string' ? end : (prev.workingHours?.end ?? '21:00'),
+            start: startVal ?? prev.workingHours?.start ?? '09:00',
+            end: endVal ?? prev.workingHours?.end ?? '21:00',
           },
           invoiceSettings: {
             ...prev.invoiceSettings,
-            footerText: typeof footerText === 'string' ? footerText : (prev.invoiceSettings?.footerText ?? ''),
+            footerText: footerVal ?? prev.invoiceSettings?.footerText ?? 'شكراً لزيارتك!',
           },
         }));
       }
